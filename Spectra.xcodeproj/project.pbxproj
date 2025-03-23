@@ -6,6 +6,23 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1F23AFDA2D8D21C3000B8F9C /* NameInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */; };
+		1FABA07E2D8C7E4700EE0677 /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */; };
+		1FD371552D8BE34B00792085 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371542D8BE34B00792085 /* ContentView.swift */; };
+		1FD371572D8BE35E00792085 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371562D8BE35E00792085 /* LoadingView.swift */; };
+		1FD371592D8BE36D00792085 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371582D8BE36D00792085 /* AudioManager.swift */; };
+		1FD3715B2D8BE37C00792085 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD3715A2D8BE37C00792085 /* WelcomeView.swift */; };
+		1FD3715D2D8BE3D100792085 /* OnBoardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD3715C2D8BE3D100792085 /* OnBoardingView.swift */; };
+		1FD3715F2D8BE3EB00792085 /* VoiceSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD3715E2D8BE3EB00792085 /* VoiceSelectionView.swift */; };
+		1FD371612D8BE40500792085 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371602D8BE40500792085 /* HomeView.swift */; };
+		1FD371632D8BE41000792085 /* PermissionDeniedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371622D8BE41000792085 /* PermissionDeniedView.swift */; };
+		1FD371652D8BE41800792085 /* SpeechRecognizers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371642D8BE41800792085 /* SpeechRecognizers.swift */; };
+		1FD371672D8BE41F00792085 /* AzureTTSManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371662D8BE41F00792085 /* AzureTTSManager.swift */; };
+		1FD371692D8BE42900792085 /* CameraManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371682D8BE42900792085 /* CameraManager.swift */; };
+		1FD3719A2D8BEB9D00792085 /* SpectraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371992D8BEB9D00792085 /* SpectraApp.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1FD371362D8BE26B00792085 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,25 +41,42 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameInputView.swift; sourceTree = "<group>"; };
+		1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
 		1FD371232D8BE26A00792085 /* Spectra.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spectra.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FD371352D8BE26B00792085 /* SpectraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpectraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FD3713F2D8BE26B00792085 /* SpectraUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpectraUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1FD371542D8BE34B00792085 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		1FD371562D8BE35E00792085 /* LoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingView.swift; sourceTree = "<group>"; };
+		1FD371582D8BE36D00792085 /* AudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioManager.swift; sourceTree = "<group>"; };
+		1FD3715A2D8BE37C00792085 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		1FD3715C2D8BE3D100792085 /* OnBoardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnBoardingView.swift; sourceTree = "<group>"; };
+		1FD3715E2D8BE3EB00792085 /* VoiceSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSelectionView.swift; sourceTree = "<group>"; };
+		1FD371602D8BE40500792085 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		1FD371622D8BE41000792085 /* PermissionDeniedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionDeniedView.swift; sourceTree = "<group>"; };
+		1FD371642D8BE41800792085 /* SpeechRecognizers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizers.swift; sourceTree = "<group>"; };
+		1FD371662D8BE41F00792085 /* AzureTTSManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureTTSManager.swift; sourceTree = "<group>"; };
+		1FD371682D8BE42900792085 /* CameraManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraManager.swift; sourceTree = "<group>"; };
+		1FD371992D8BEB9D00792085 /* SpectraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectraApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1FABA06D2D8BEF4200EE0677 /* Exceptions for "Spectra" folder in "Spectra" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1FD371222D8BE26A00792085 /* Spectra */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1FD371252D8BE26A00792085 /* Spectra */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1FABA06D2D8BEF4200EE0677 /* Exceptions for "Spectra" folder in "Spectra" target */,
+			);
 			path = Spectra;
-			sourceTree = "<group>";
-		};
-		1FD371382D8BE26B00792085 /* SpectraTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SpectraTests;
-			sourceTree = "<group>";
-		};
-		1FD371422D8BE26B00792085 /* SpectraUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SpectraUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -75,9 +109,21 @@
 		1FD3711A2D8BE26A00792085 = {
 			isa = PBXGroup;
 			children = (
+				1FD371992D8BEB9D00792085 /* SpectraApp.swift */,
+				1FD371542D8BE34B00792085 /* ContentView.swift */,
+				1FD371562D8BE35E00792085 /* LoadingView.swift */,
+				1FD3715A2D8BE37C00792085 /* WelcomeView.swift */,
+				1FD3715C2D8BE3D100792085 /* OnBoardingView.swift */,
+				1FD3715E2D8BE3EB00792085 /* VoiceSelectionView.swift */,
+				1FD371602D8BE40500792085 /* HomeView.swift */,
+				1FD371622D8BE41000792085 /* PermissionDeniedView.swift */,
+				1FD371642D8BE41800792085 /* SpeechRecognizers.swift */,
+				1FD371582D8BE36D00792085 /* AudioManager.swift */,
+				1FD371662D8BE41F00792085 /* AzureTTSManager.swift */,
+				1FD371682D8BE42900792085 /* CameraManager.swift */,
+				1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */,
+				1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */,
 				1FD371252D8BE26A00792085 /* Spectra */,
-				1FD371382D8BE26B00792085 /* SpectraTests */,
-				1FD371422D8BE26B00792085 /* SpectraUITests */,
 				1FD371242D8BE26A00792085 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -130,9 +176,6 @@
 			dependencies = (
 				1FD371372D8BE26B00792085 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				1FD371382D8BE26B00792085 /* SpectraTests */,
-			);
 			name = SpectraTests;
 			packageProductDependencies = (
 			);
@@ -153,9 +196,6 @@
 			dependencies = (
 				1FD371412D8BE26B00792085 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				1FD371422D8BE26B00792085 /* SpectraUITests */,
-			);
 			name = SpectraUITests;
 			packageProductDependencies = (
 			);
@@ -175,6 +215,7 @@
 				TargetAttributes = {
 					1FD371222D8BE26A00792085 = {
 						CreatedOnToolsVersion = 16.2;
+						LastSwiftMigration = 1620;
 					};
 					1FD371342D8BE26B00792085 = {
 						CreatedOnToolsVersion = 16.2;
@@ -236,6 +277,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FABA07E2D8C7E4700EE0677 /* AudioSessionManager.swift in Sources */,
+				1FD371672D8BE41F00792085 /* AzureTTSManager.swift in Sources */,
+				1F23AFDA2D8D21C3000B8F9C /* NameInputView.swift in Sources */,
+				1FD3715B2D8BE37C00792085 /* WelcomeView.swift in Sources */,
+				1FD371552D8BE34B00792085 /* ContentView.swift in Sources */,
+				1FD3715F2D8BE3EB00792085 /* VoiceSelectionView.swift in Sources */,
+				1FD3715D2D8BE3D100792085 /* OnBoardingView.swift in Sources */,
+				1FD371652D8BE41800792085 /* SpeechRecognizers.swift in Sources */,
+				1FD3719A2D8BEB9D00792085 /* SpectraApp.swift in Sources */,
+				1FD371612D8BE40500792085 /* HomeView.swift in Sources */,
+				1FD371632D8BE41000792085 /* PermissionDeniedView.swift in Sources */,
+				1FD371592D8BE36D00792085 /* AudioManager.swift in Sources */,
+				1FD371692D8BE42900792085 /* CameraManager.swift in Sources */,
+				1FD371572D8BE35E00792085 /* LoadingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -393,12 +448,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"Spectra/Preview Content\"";
 				DEVELOPMENT_TEAM = 7RDCHAL9TX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Spectra/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -412,6 +468,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = sammytourani.Spectra;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -422,12 +479,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"Spectra/Preview Content\"";
 				DEVELOPMENT_TEAM = 7RDCHAL9TX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Spectra/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
