@@ -30,7 +30,7 @@ struct NameInputView: View {
     @State private var nameRevealCompleted = false
     
     // For audio playback optimization
-    private let audioPlayer = try? AVAudioPlayer(contentsOf: Bundle.main.url(forResource: "key_press", withExtension: "mp3")!)
+    @State private var audioPlayer: AVAudioPlayer? = nil
     
     // For animation performance
     @Environment(\.scenePhase) private var scenePhase
@@ -192,8 +192,8 @@ struct NameInputView: View {
                     Spacer()
                 }
             }
-            // Fixed: Updated onChange for iOS 17 compatibility
-            .onChange(of: scenePhase) { oldPhase, newPhase in
+            // Handle scenePhase changes - fixed for compatibility
+            .onChange(of: scenePhase) { newPhase in
                 // Pause heavy animations when app goes to background
                 if newPhase != .active {
                     pauseHeavyAnimations()
@@ -202,9 +202,8 @@ struct NameInputView: View {
                 }
             }
             .onAppear {
-                // Prepare audio player
-                audioPlayer?.prepareToPlay()
-                audioPlayer?.volume = 0.2
+                // Initialize audio player on appear to avoid the nil unwrapping crash
+                initializeAudioPlayer()
                 
                 // Generate fewer particles for better performance
                 generateParticles(in: geometry.size, count: 15)
@@ -237,10 +236,30 @@ struct NameInputView: View {
         }
     }
     
+    // MARK: - Initialization
+    
+    // Initialize audio player separately to avoid the nil unwrapping crash
+    private func initializeAudioPlayer() {
+        do {
+            if let keyPressURL = Bundle.main.url(forResource: "key_press", withExtension: "mp3") {
+                self.audioPlayer = try AVAudioPlayer(contentsOf: keyPressURL)
+                self.audioPlayer?.prepareToPlay()
+                self.audioPlayer?.volume = 0.2
+                print("Audio player initialized successfully")
+            } else {
+                print("Warning: Could not find key_press.mp3 in bundle")
+            }
+        } catch {
+            print("Error initializing audio player: \(error)")
+        }
+    }
+    
     // MARK: - Interaction Methods
     
     private func startIntroduction() {
         AudioSessionManager.shared.activate()
+        
+        print("Starting introduction with voice: \(selectedVoice)")
         
         // First try with Azure TTS
         ttsManager.speak("Please say your name so I can greet you properly.", voice: selectedVoice) {
@@ -302,11 +321,13 @@ struct NameInputView: View {
             if self.typingIndex < self.userName.count {
                 self.typingIndex += 1
                 
-                // Reuse pre-initialized audio player for better performance
-                AudioSessionManager.shared.activate()
-                self.audioPlayer?.play()
-                self.audioPlayer?.currentTime = 0
-                AudioSessionManager.shared.deactivate()
+                // Play sound only if player exists
+                if let player = self.audioPlayer, player.isReady {
+                    AudioSessionManager.shared.activate()
+                    player.play()
+                    player.currentTime = 0
+                    AudioSessionManager.shared.deactivate()
+                }
             } else {
                 timer.invalidate()
                 self.typingTimer = nil
@@ -329,7 +350,10 @@ struct NameInputView: View {
                                 // Auto-transition to home view after a brief delay
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                                     AudioSessionManager.shared.deactivate()
-                                    self.onComplete(self.userName)
+                                    // Call on main thread
+                                    DispatchQueue.main.async {
+                                        self.onComplete(self.userName)
+                                    }
                                 }
                             }
                         }
@@ -471,5 +495,12 @@ struct SinWave: Shape {
     var animatableData: Double {
         get { phase }
         set { phase = newValue }
+    }
+}
+
+// Extension to check if audio player is ready
+extension AVAudioPlayer {
+    var isReady: Bool {
+        return duration > 0
     }
 }

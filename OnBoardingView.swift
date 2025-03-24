@@ -3,7 +3,7 @@ import AVFoundation
 import Speech
 
 struct OnBoardingView: View {
-    let onNext: () -> Void
+    let onComplete: () -> Void
     
     @StateObject private var audioManager = AudioManager()
     @StateObject private var speechRecognizers = SpeechRecognizers()
@@ -17,6 +17,7 @@ struct OnBoardingView: View {
     @State private var waveOpacity: Double = 0.5
     @State private var showSuccessAnimation = false
     @State private var instructionText: String = "Spectra is explaining how to use the app"
+    @State private var isTransitioning = false
     
     enum OnboardingStep {
         case initial
@@ -122,9 +123,16 @@ struct OnBoardingView: View {
         .onAppear {
             startOnboarding()
         }
+        .onDisappear {
+            speechRecognizers.stopRecording()
+            audioManager.stopAudio()
+            ttsManager.cancelAllSpeech()
+            AudioSessionManager.shared.deactivate()
+        }
     }
     
     private func startOnboarding() {
+        print("Starting onboarding")
         currentStep = .playing
         
         withAnimation(Animation.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
@@ -134,74 +142,119 @@ struct OnBoardingView: View {
         
         AudioSessionManager.shared.activate()
         audioManager.playAudio(named: "onboarding_audio") {
+            print("Onboarding audio finished, setting up speech recognition")
+            self.setupSpeechRecognition()
+        }
+    }
+    
+    private func setupSpeechRecognition() {
+        print("Setting up speech recognition")
+        withAnimation(.easeInOut(duration: 0.4)) {
+            currentStep = .listening
+            instructionText = "Say 'Begin' to continue..."
+        }
+        
+        withAnimation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+            pulseAnimation = true
+        }
+        
+        let micPermission = AVAudioSession.sharedInstance().recordPermission
+        guard micPermission == .granted else {
+            print("Microphone permission denied: \(micPermission.rawValue)")
+            currentStep = .initial
+            instructionText = "Please enable microphone access in Settings."
             AudioSessionManager.shared.deactivate()
-            
-            withAnimation(.easeInOut(duration: 0.4)) {
-                currentStep = .listening
-                instructionText = "Say 'Begin' to continue..."
+            return
+        }
+        
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            print("Speech recognition not authorized")
+            currentStep = .initial
+            instructionText = "Please enable speech recognition in Settings."
+            AudioSessionManager.shared.deactivate()
+            return
+        }
+        
+        AudioSessionManager.shared.activate()
+        speechRecognizers.startRecording { recognizedText in
+            print("Recognized text: \(recognizedText)")
+            if recognizedText.lowercased().contains("begin") {
+                self.handleSuccess()
             }
-            
-            withAnimation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                pulseAnimation = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
+            if self.currentStep == .listening {
+                print("Speech timeout, prompting retry")
+                self.speechRecognizers.stopRecording()
+                self.instructionText = "I didn't hear 'Begin'. Please try again."
+                AudioSessionManager.shared.deactivate()
+                self.setupSpeechRecognition()
             }
-            
-            // Workaround: Use AVAudioSession as fallback if AVAudioApplication fails
-            let micPermission = AVAudioSession.sharedInstance().recordPermission
-            guard micPermission == .granted else {
-                print("Microphone permission denied: \(micPermission.rawValue)")
-                currentStep = .initial
-                instructionText = "Please enable microphone access in Settings."
-                return
-            }
-            
-            guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-                print("Speech recognition not authorized")
-                currentStep = .initial
-                instructionText = "Please enable speech recognition in Settings."
-                return
-            }
-            
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.record, mode: .default, options: [])
-                try session.setActive(true)
-                print("Audio session configured for recording")
-            } catch {
-                print("Failed to configure audio session for recording: \(error)")
-                currentStep = .initial
-                instructionText = "Audio setup failed. Tap to retry."
-                return
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                speechRecognizers.startRecording { recognizedText in
-                    print("Recognized text: \(recognizedText)")
-                    if recognizedText.lowercased().contains("begin") {
-                        print("Begin detected, stopping recording")
-                        speechRecognizers.stopRecording()
+        }
+    }
+    
+    private func handleSuccess() {
+        guard !isTransitioning, currentStep != .success else {
+            print("Success already handled, ignoring duplicate")
+            return
+        }
+        
+        print("Handling success after 'Begin' detected")
+        isTransitioning = true
+        speechRecognizers.stopRecording()
+        
+        withAnimation {
+            currentStep = .success
+            print("UI updated to success state")
+        }
+        
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            showSuccessAnimation = true
+            print("Success animation triggered")
+        }
+        
+        // Reset audio session for stability
+        AudioSessionManager.shared.deactivate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            AudioSessionManager.shared.activate()
+            self.audioManager.playAudio(named: "success_chime") {
+                print("Success chime finished")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    print("Preparing to play TTS")
+                    self.ttsManager.speak("Awesome, I can hear you loud and clear! Let's keep going.", voice: "en-US-JennyNeural") {
+                        print("TTS finished - NAVIGATING NOW")
+                        self.speechRecognizers.stopRecording()
                         AudioSessionManager.shared.deactivate()
-                        
-                        withAnimation {
-                            currentStep = .success
-                            print("Transitioned to success step")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            DispatchQueue.main.async {
+                                print("Calling onComplete() to navigate to next screen")
+                                self.onComplete()
+                            }
                         }
-                        
-                        AudioSessionManager.shared.activate()
-                        audioManager.playAudio(named: "success_chime") {
-                            print("Success chime finished")
-                            AudioSessionManager.shared.deactivate()
-                            print("Calling onNext after chime")
-                            onNext()
-                        }
-                        
-                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                            showSuccessAnimation = true
-                        }
-                    } else {
-                        print("Did not recognize 'begin', got: \(recognizedText)")
                     }
                 }
-                print("Started speech recognition")
+            }
+            
+            // Fallback for chime (adjusted to 3 seconds)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                if self.currentStep == .success && !self.audioManager.isPlaying {
+                    print("Chime fallback: Forcing completion")
+                    self.audioManager.stopAudio()
+                }
+            }
+            
+            // Backup timer (extended to 10 seconds)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                if self.isTransitioning && self.currentStep == .success {
+                    print("Backup navigation timer triggered")
+                    self.audioManager.stopAudio()
+                    self.ttsManager.cancelAllSpeech()
+                    AudioSessionManager.shared.deactivate()
+                    DispatchQueue.main.async {
+                        self.onComplete()
+                    }
+                }
             }
         }
     }
@@ -226,8 +279,8 @@ struct DynamicWaveBackground: View {
                     Path(CGRect(origin: .zero, size: size)),
                     with: .linearGradient(
                         Gradient(colors: [
-                            Color(red: 46/255, green: 49/255, blue: 146/255),  // #2E3192
-                            Color(red: 27/255, green: 255/255, blue: 255/255)  // #1BFFFF
+                            Color(red: 46/255, green: 49/255, blue: 146/255),
+                            Color(red: 27/255, green: 255/255, blue: 255/255)
                         ]),
                         startPoint: CGPoint(x: size.width / 2, y: 0),
                         endPoint: CGPoint(x: size.width / 2, y: size.height)

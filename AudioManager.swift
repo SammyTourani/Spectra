@@ -4,8 +4,11 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var completion: (() -> Void)?
     
+    var isPlaying: Bool {
+        return player?.isPlaying ?? false
+    }
+    
     func playAudio(named name: String, completion: @escaping () -> Void) {
-        // Stop any ongoing playback
         stopAudio()
         
         guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
@@ -18,7 +21,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
             self.completion = completion
-            player?.prepareToPlay() // Preload audio to reduce latency
+            player?.prepareToPlay()
             let success = player?.play()
             if success == false {
                 print("Error: Failed to start playback for \(name)")
@@ -37,11 +40,12 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func stopAudio() {
         player?.stop()
         player = nil
-        completion?()
-        completion = nil
+        if completion != nil {
+            completion?()
+            completion = nil
+        }
     }
     
-    // MARK: - AVAudioPlayerDelegate
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         print("Finished playing audio, success: \(flag)")
         completion?()

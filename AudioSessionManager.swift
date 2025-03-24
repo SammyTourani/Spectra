@@ -2,16 +2,28 @@ import AVFoundation
 
 class AudioSessionManager {
     static let shared = AudioSessionManager()
-    private init() {}
+    
+    private init() {
+        setupAudioSession()
+    }
+    
+    private func setupAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setMode(.default)
+            try session.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to set up audio session: \(error.localizedDescription)")
+        }
+    }
     
     func activate() {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
+            try AVAudioSession.sharedInstance().setActive(true)
             print("Audio session activated")
         } catch {
-            print("Error activating audio session: \(error)")
+            print("Error activating audio session: \(error.localizedDescription)")
         }
     }
     

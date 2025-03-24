@@ -41,7 +41,7 @@ struct ContentView: View {
                 
             case .onboarding:
                 OnBoardingView(
-                    onNext: { flowState = .voiceSelection }
+                    onComplete: { flowState = .voiceSelection }
                 )
                 .transition(.opacity)
                 

@@ -115,6 +115,7 @@
 				1FD3715A2D8BE37C00792085 /* WelcomeView.swift */,
 				1FD3715C2D8BE3D100792085 /* OnBoardingView.swift */,
 				1FD3715E2D8BE3EB00792085 /* VoiceSelectionView.swift */,
+				1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */,
 				1FD371602D8BE40500792085 /* HomeView.swift */,
 				1FD371622D8BE41000792085 /* PermissionDeniedView.swift */,
 				1FD371642D8BE41800792085 /* SpeechRecognizers.swift */,
@@ -122,7 +123,6 @@
 				1FD371662D8BE41F00792085 /* AzureTTSManager.swift */,
 				1FD371682D8BE42900792085 /* CameraManager.swift */,
 				1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */,
-				1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */,
 				1FD371252D8BE26A00792085 /* Spectra */,
 				1FD371242D8BE26A00792085 /* Products */,
 			);
