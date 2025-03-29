@@ -44,8 +44,11 @@ class AzureTTSManager: ObservableObject {
     func speak(_ text: String, voice: String, completion: @escaping () -> Void) {
         let cacheKey = "\(text)_\(voice)"
         
+        print("AzureTTSManager: Attempting to speak: '\(text)' with voice: \(voice)")
+        
         // First check if we have this speech already cached
         if let cachedAudio = audioCache[cacheKey] {
+            print("AzureTTSManager: Using cached audio for: \(cacheKey)")
             playAudioData(cachedAudio, completion: completion)
             return
         }
@@ -53,17 +56,19 @@ class AzureTTSManager: ObservableObject {
         // Cancel any identical pending request
         requestQueue.async { [weak self] in
             if let existingTask = self?.pendingSpeechTasks[cacheKey] {
+                print("AzureTTSManager: Cancelling existing task for: \(cacheKey)")
                 existingTask.cancel()
                 self?.pendingSpeechTasks.removeValue(forKey: cacheKey)
             }
             
+            print("AzureTTSManager: Sending request to Azure TTS for: \(cacheKey)")
             self?.requestSpeech(text: text, voice: voice, cacheKey: cacheKey, completion: completion)
         }
     }
     
     private func requestSpeech(text: String, voice: String, cacheKey: String, completion: @escaping () -> Void) {
         guard let url = URL(string: baseURL) else {
-            print("Invalid Azure TTS URL")
+            print("AzureTTSManager: Invalid Azure TTS URL")
             DispatchQueue.main.async { completion() }
             return
         }
@@ -79,7 +84,7 @@ class AzureTTSManager: ObservableObject {
         let ssml = """
         <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
             <voice name='\(voice)'>
-                <prosody rate="0.9">\(text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;"))</prosody>
+                <prosody rate="0.9">\(text.replacingOccurrences(of: "&", with: "&").replacingOccurrences(of: "<", with: "<").replacingOccurrences(of: ">", with: ">"))</prosody>
             </voice>
         </speak>
         """
@@ -95,20 +100,29 @@ class AzureTTSManager: ObservableObject {
             // Handle errors
             if let error = error {
                 if (error as NSError).code != NSURLErrorCancelled {
-                    print("Azure TTS request error: \(error.localizedDescription)")
+                    print("AzureTTSManager: Request error: \(error.localizedDescription)")
                 }
                 DispatchQueue.main.async { completion() }
                 return
             }
             
             // Validate HTTP response
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode),
-                  let data = data, !data.isEmpty else {
-                print("Azure TTS response error: \(response.debugDescription)")
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("AzureTTSManager: Invalid response from server")
                 DispatchQueue.main.async { completion() }
                 return
             }
+            
+            print("AzureTTSManager: Received response with status code: \(httpResponse.statusCode)")
+            
+            guard (200...299).contains(httpResponse.statusCode),
+                  let data = data, !data.isEmpty else {
+                print("AzureTTSManager: Response error - Status code: \(httpResponse.statusCode), Data: \(data?.count ?? 0) bytes")
+                DispatchQueue.main.async { completion() }
+                return
+            }
+            
+            print("AzureTTSManager: Successfully received audio data of size: \(data.count) bytes")
             
             // Cache the audio data
             self?.cacheAudioData(data, forKey: cacheKey)
@@ -121,6 +135,7 @@ class AzureTTSManager: ObservableObject {
         requestQueue.async { [weak self] in
             self?.pendingSpeechTasks[cacheKey] = task
             task.resume()
+            print("AzureTTSManager: Request task started for: \(cacheKey)")
         }
     }
     
@@ -134,23 +149,25 @@ class AzureTTSManager: ObservableObject {
             // Manage cache size
             if self.audioCache.count > self.maxCacheEntries {
                 // Remove random entry when cache gets too large
-                // A more sophisticated LRU implementation could be added if needed
                 if let keyToRemove = self.audioCache.keys.randomElement() {
                     self.audioCache.removeValue(forKey: keyToRemove)
                 }
             }
+            print("AzureTTSManager: Cached audio data for key: \(key)")
         }
     }
     
     private func playAudioData(_ data: Data, completion: @escaping () -> Void) {
         playerQueue.async { [weak self] in
             guard let self = self else {
+                print("AzureTTSManager: Self deallocated, calling completion")
                 DispatchQueue.main.async { completion() }
                 return
             }
             
             // Stop any current playback
             if let player = self.currentPlayer, player.isPlaying {
+                print("AzureTTSManager: Stopping current playback")
                 player.stop()
             }
             
@@ -162,6 +179,7 @@ class AzureTTSManager: ObservableObject {
                 
                 // Set up completion handler
                 let playbackCompletion: (Bool) -> Void = { success in
+                    print("AzureTTSManager: Playback finished with success: \(success)")
                     DispatchQueue.main.async { completion() }
                 }
                 
@@ -169,14 +187,14 @@ class AzureTTSManager: ObservableObject {
                 
                 // Start playback
                 if player.play() {
-                    // Playback started successfully
+                    print("AzureTTSManager: Playback started successfully")
                 } else {
-                    print("Azure TTS playback failed to start")
+                    print("AzureTTSManager: Playback failed to start")
                     DispatchQueue.main.async { completion() }
                 }
                 
             } catch {
-                print("Azure TTS audio player error: \(error)")
+                print("AzureTTSManager: Audio player error: \(error)")
                 DispatchQueue.main.async { completion() }
             }
         }
@@ -186,16 +204,17 @@ class AzureTTSManager: ObservableObject {
         requestQueue.async { [weak self] in
             // Cancel all pending network requests
             guard let self = self else { return }
-            // Fixed: Properly iterate over the dictionary values
             for task in self.pendingSpeechTasks.values {
                 task.cancel()
             }
             self.pendingSpeechTasks.removeAll()
+            print("AzureTTSManager: Cancelled all pending speech tasks")
         }
         
         playerQueue.async { [weak self] in
             // Stop current playback
             if let player = self?.currentPlayer, player.isPlaying {
+                print("AzureTTSManager: Stopping current playback on cancel")
                 player.stop()
             }
             self?.currentPlayer = nil
@@ -206,12 +225,14 @@ class AzureTTSManager: ObservableObject {
         // Clear cache on memory pressure
         requestQueue.async { [weak self] in
             self?.audioCache.removeAll()
+            print("AzureTTSManager: Cleared audio cache due to memory pressure")
         }
     }
     
     deinit {
         cancelAllSpeech()
         NotificationCenter.default.removeObserver(self)
+        print("AzureTTSManager: Deinitialized")
     }
 }
 

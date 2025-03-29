@@ -343,15 +343,18 @@ struct NameInputView: View {
                         
                         // Play greeting with the name after border animation appears
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            print("NameInputView: Starting TTS greeting for name: \(self.userName)")
                             AudioSessionManager.shared.activate()
-                            self.ttsManager.speak("Hello \(self.userName)! It's wonderful to meet you.", voice: self.selectedVoice) {
+                            self.ttsManager.speak("Hi \(self.userName)! It's nice to meet you, let's take you to the home menu.", voice: self.selectedVoice) {
+                                print("NameInputView: TTS greeting finished")
                                 self.greetingPlayed = true
                                 
-                                // Auto-transition to home view after a brief delay
+                                print("NameInputView: Scheduling transition to HomeView in 2.5 seconds")
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                    print("NameInputView: Deactivating audio session before transition")
                                     AudioSessionManager.shared.deactivate()
-                                    // Call on main thread
                                     DispatchQueue.main.async {
+                                        print("NameInputView: Calling onComplete with name: \(self.userName)")
                                         self.onComplete(self.userName)
                                     }
                                 }

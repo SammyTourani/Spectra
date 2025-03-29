@@ -7,14 +7,14 @@ import numpy as np
 import math
 from sentence_transformers import SentenceTransformer, util
 
-#all model configas
+# all model configs
 sentance_model = SentenceTransformer('all-MiniLM-L6-v2')
 # yolo model
 model = YOLO("yolov8l.pt") 
 
-#depthestimator model also note to SAMMY if running this from ur computer change device to 'cuda' i only put cpu cuz mine isnt powerful enough
-depth_estimator = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device='cuda')
-#SAMMY PLEASE READ THIS ONE COMMENT
+# depthestimator model also note to SAMMY if running this from ur computer change device to 'cuda' i only put cpu cuz mine isnt powerful enough
+depth_estimator = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device='mps')
+# SAMMY PLEASE READ THIS ONE COMMENT
 
 # hand tracker model
 mp_hands = mp.solutions.hands
@@ -23,9 +23,9 @@ hands = mp_hands.Hands(static_image_mode=False,
                        min_detection_confidence=0.5,
                        min_tracking_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
-#model configs done
+# model configs done
 
-#get desired object
+# get desired object
 i = input('gimme da object')
 query_embedding = sentance_model.encode(i, convert_to_tensor=True)
 # get webcam
@@ -34,7 +34,7 @@ if not cap.isOpened():
     print("Error: Could not open webcam.")
     exit()
 
-#function for full thing which is called upon wanting to find an object
+# function for full thing which is called upon wanting to find an object
 def handtoobjectfinder():
     name = ''
     directions = ["Right", "Up-Right", "Up", "Up-Left", 
@@ -88,7 +88,7 @@ def handtoobjectfinder():
             text = f"{label}"
             cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             things = things + [model.names[class_id]]
-        #this makes vector vector used later for direction
+        # this makes vector vector used later for direction
         if things != []:
             doc_embeddings = sentance_model.encode(things, convert_to_tensor=True)
             cosine_scores = util.cos_sim(query_embedding, doc_embeddings)[0] 
@@ -131,9 +131,9 @@ def handtoobjectfinder():
 
 
 
-        #IMPORTANT REMEMBER THIS
+        # IMPORTANT REMEMBER THIS
         combined_frame = cv2.addWeighted(frame, 0.6, depth_colored, 0.4, 0)  # Blend annotations with depth
-        #UNCOMMENTING THIS WILL BRING DEPTH COLOR BACK TO DEMO
+        # UNCOMMENTING THIS WILL BRING DEPTH COLOR BACK TO DEMO
     # Display the annotated frame
         cv2.imshow("YOLO + Mediapipe Hands Tracking", combined_frame)
 

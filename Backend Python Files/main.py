@@ -28,7 +28,7 @@ sentance_model = SentenceTransformer('all-MiniLM-L6-v2')
 model = YOLO("yolov8l.pt") 
 
 #depthestimator model also note to SAMMY if running this from ur computer change device to 'cuda' i only put cpu cuz mine isnt powerful enough
-depth_estimator = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device='cuda')
+depth_estimator = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device='mps')
 #SAMMY PLEASE READ THIS ONE COMMENT
 
 # hand tracker model
@@ -41,24 +41,34 @@ mp_drawing = mp.solutions.drawing_utils
 #model configs done
 
 #functions
-def perform_ocr_and_speak(image_path, language='en'):
+def perform_ocr_and_speak(image, language='en'):
+    # Convert PIL image to NumPy array
+    image_np = np.array(image)
+    # Save temporarily to disk for EasyOCR
+    temp_path = "temp_image.jpg"
+    cv2.imwrite(temp_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+    
     # Initialize the EasyOCR reader
     reader = easyocr.Reader([language])
     
     # Perform OCR on the image
-    result = reader.readtext(image_path)
+    result = reader.readtext(temp_path)
     
     # Extract text from the result
     extracted_text = " ".join([text[1] for text in result])
+    
+    # Clean up
+    os.remove(temp_path)
     
     return extracted_text
 
 def analyze_image_with_gpt(image, api_key):
     client = OpenAI(api_key=api_key)
 
-    # Convert the image to base64
-    _, buffer = cv2.imencode('.jpg', image)
-    image_data = base64.b64encode(buffer).decode("utf-8")
+    # Convert PIL image to base64
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    image_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     prompt = (
          "Describe the main elements of the image in simple, direct language. "
@@ -84,22 +94,42 @@ def analyze_image_with_gpt(image, api_key):
         return response.choices[0].message.content
     except Exception as e:
         return f"Error: {str(e)}"
+
+def text_to_speech(text):
+    # Convert text to speech using gTTS
+    tts = gTTS(text=text, lang='en')
+    audio_path = "output_audio.mp3"
+    tts.save(audio_path)
+    
+    # Read the audio file and encode it as base64
+    with open(audio_path, "rb") as audio_file:
+        audio_data = audio_file.read()
+        audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+    
+    # Clean up the audio file
+    os.remove(audio_path)
+    
+    return audio_base64
+
 #handsfunction
-def hand_to_object_finder(image,i):
-    image = cv2.imread("path_to_image.jpg")
+def hand_to_object_finder(image, query_embedding):
     name = ''
     directions = ["Right", "Up-Right", "Up", "Up-Left",
                   "Left", "Down-Left", "Down", "Down-Right"]
 
-    # Convert the input image to RGB
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Convert PIL image to NumPy array (in BGR format for OpenCV)
+    image_np = np.array(image)
+    image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+
+    # Convert the image to RGB for Mediapipe
+    rgb_image = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
     pil_image = Image.fromarray(rgb_image)
 
     # Run Mediapipe Hands on the image
     hand_results = hands.process(rgb_image)
 
     # Run YOLO model on the image
-    yolo_results = model(image)
+    yolo_results = model(image_np)
 
     # Run depth-estimation model on the image
     depth_result = depth_estimator(pil_image)
@@ -129,17 +159,17 @@ def hand_to_object_finder(image,i):
             x1s, y1s, x2s, y2s = x1, y1, x2, y2
 
         # Draw bounding box
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(image_np, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
         # Put label text
         text = f"{label}"
-        cv2.putText(image, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(image_np, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         things.append(model.names[class_id])
 
     # Calculate vector for direction
     if things:
         doc_embeddings = sentance_model.encode(things, convert_to_tensor=True)
-        cosine_scores = util.cos_sim(i, doc_embeddings)[0]
+        cosine_scores = util.cos_sim(query_embedding, doc_embeddings)[0]
         ranked_docs = sorted(zip(cosine_scores.tolist(), things), reverse=True, key=lambda x: x[0])
         score, name = ranked_docs[0]
     object_x = (x1s + x2s) // 2
@@ -149,7 +179,7 @@ def hand_to_object_finder(image,i):
     if hand_results.multi_hand_landmarks:
         for hand_landmarks in hand_results.multi_hand_landmarks:
             mp_drawing.draw_landmarks(
-                image,
+                image_np,
                 hand_landmarks,
                 mp_hands.HAND_CONNECTIONS,
                 mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
@@ -157,8 +187,8 @@ def hand_to_object_finder(image,i):
             )
     if hand_results.multi_hand_landmarks and len(yolo_results[0].boxes) - c != 0:
         hand_landmarks = hand_results.multi_hand_landmarks[0]
-        hand_x = int(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x * image.shape[1])
-        hand_y = int(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].y * image.shape[0])
+        hand_x = int(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x * image_np.shape[1])
+        hand_y = int(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].y * image_np.shape[0])
         dx = object_x - hand_x
         dy = object_y - hand_y
         angle_radians = math.atan2(dy, dx)
@@ -172,20 +202,24 @@ def hand_to_object_finder(image,i):
             return 'object within reach'
         else:
             return directions[angleindex]
+    return "No hand or object detected."
 
 
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+print("DEBUG: OpenAI API Key =", api_key)
 
 app = FastAPI()
 prompts = ['Read the text', 'describe what I am viewing', 'Identify object location', 'Other']
 doc_embeddings = sentance_model.encode(prompts, convert_to_tensor=True)
 response_toapp = ''
+query_embedding_chatbot = None  # Initialize as None
 
 #server requests
 @app.post("/speech")
 async def receive_speech(request: Request):
+    global response_toapp, query_embedding_chatbot  # Use global variables
     data = await request.json()
     recognized_text = data.get("query")
     query_embedding_chatbot = sentance_model.encode(recognized_text, convert_to_tensor=True)
@@ -197,7 +231,7 @@ async def receive_speech(request: Request):
     elif name == prompts[0]:
         response_toapp = 'Ok, I will begin reading the text, please point your camera towards it'
     elif name == prompts[1]:
-        response_toapp = 'Ok, I will describe what is infront of you'
+        response_toapp = 'Ok, I will describe what is in front of you'
     elif name == prompts[2]:
         response_toapp = 'Ok, locating the object'
     elif name == prompts[3]:
@@ -208,30 +242,41 @@ async def receive_speech(request: Request):
 
 @app.post("/process-image")
 async def process_image(file: UploadFile = File(...)):
+    global response_toapp, query_embedding_chatbot  # Use global variables
     try:
         # Read the uploaded image file
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
 
+        # Debug: Print the value of response_toapp
+        print("DEBUG: response_toapp =", response_toapp)
+
         # Process the image (example: OCR pipeline)
         if response_toapp == 'Ok, I will begin reading the text, please point your camera towards it':
             results = perform_ocr_and_speak(image)
         elif response_toapp == 'Ok, I will describe what is in front of you':
-            results = analyze_image_with_gpt(image)
+            results = analyze_image_with_gpt(image, api_key)
         elif response_toapp == 'Ok, locating the object':
-            results = hand_to_object_finder(image)
+            if query_embedding_chatbot is None:
+                results = "Error: Please provide the object to locate via the /speech endpoint first."
+            else:
+                results = hand_to_object_finder(image, query_embedding_chatbot)
         else:
             results = "Invalid action specified."
         
-
-        # Extract the text (you can modify based on your task)yay
+        # Extract the text (you can modify based on your task)
         recognized_text = results
 
         print("Recognized Text:", recognized_text)
 
-        # Return the recognized text as a response
-        return JSONResponse(content={"recognized_text": recognized_text})
+        # Convert the recognized text to speech and get base64-encoded audio
+        audio_base64 = text_to_speech(recognized_text)
+
+        # Return the recognized text and audio as a response
+        return JSONResponse(content={
+            "recognized_text": recognized_text,
+            "audio_base64": audio_base64
+        })
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
-
