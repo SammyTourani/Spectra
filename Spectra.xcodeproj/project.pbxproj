@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1F23AFDA2D8D21C3000B8F9C /* NameInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */; };
+		1F5C9F372D98AE3200075F82 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F5C9F362D98AE2800075F82 /* APIService.swift */; };
 		1FABA07E2D8C7E4700EE0677 /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */; };
 		1FD371552D8BE34B00792085 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371542D8BE34B00792085 /* ContentView.swift */; };
 		1FD371572D8BE35E00792085 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD371562D8BE35E00792085 /* LoadingView.swift */; };
@@ -42,6 +43,7 @@
 
 /* Begin PBXFileReference section */
 		1F23AFD92D8D21C3000B8F9C /* NameInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameInputView.swift; sourceTree = "<group>"; };
+		1F5C9F362D98AE2800075F82 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
 		1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
 		1FD371232D8BE26A00792085 /* Spectra.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spectra.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FD371352D8BE26B00792085 /* SpectraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpectraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -122,6 +124,7 @@
 				1FD371582D8BE36D00792085 /* AudioManager.swift */,
 				1FD371662D8BE41F00792085 /* AzureTTSManager.swift */,
 				1FD371682D8BE42900792085 /* CameraManager.swift */,
+				1F5C9F362D98AE2800075F82 /* APIService.swift */,
 				1FABA07D2D8C7E4700EE0677 /* AudioSessionManager.swift */,
 				1FD371252D8BE26A00792085 /* Spectra */,
 				1FD371242D8BE26A00792085 /* Products */,
@@ -278,6 +281,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1FABA07E2D8C7E4700EE0677 /* AudioSessionManager.swift in Sources */,
+				1F5C9F372D98AE3200075F82 /* APIService.swift in Sources */,
 				1FD371672D8BE41F00792085 /* AzureTTSManager.swift in Sources */,
 				1F23AFDA2D8D21C3000B8F9C /* NameInputView.swift in Sources */,
 				1FD3715B2D8BE37C00792085 /* WelcomeView.swift in Sources */,

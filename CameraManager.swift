@@ -5,7 +5,8 @@ class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
     private var lastFrameTime: TimeInterval = 0
-    var fps: Double = 10
+    private var frameCallback: ((UIImage) -> Void)?
+    var fps: Double = 2 // Reduced to lower server load
     
     override init() {
         super.init()
@@ -26,16 +27,24 @@ class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         }
     }
     
-    func start() {
+    func startCapturingFrames(callback: @escaping (UIImage) -> Void) {
+        self.frameCallback = callback
+        
         sessionQueue.async { [weak self] in
             self?.captureSession.startRunning()
         }
+    }
+    
+    func start() {
+        // For backward compatibility
+        startCapturingFrames { _ in }
     }
     
     func stop() {
         sessionQueue.async { [weak self] in
             self?.captureSession.stopRunning()
         }
+        frameCallback = nil
     }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -44,15 +53,15 @@ class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         lastFrameTime = currentTime
         
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-              let cgImage = CIContext().createCGImage(CIImage(cvPixelBuffer: imageBuffer), from: CIImage(cvPixelBuffer: imageBuffer).extent),
-              let jpegData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.8),
-              let url = URL(string: "http://172.18.179.5:8000/process-image") else { return }
+              let cgImage = CIContext().createCGImage(CIImage(cvPixelBuffer: imageBuffer), from: CIImage(cvPixelBuffer: imageBuffer).extent) else { return }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        URLSession.shared.uploadTask(with: request, from: jpegData) { _, _, error in
-            if let error = error { print("Camera upload error: \(error)") }
-        }.resume()
+        let image = UIImage(cgImage: cgImage)
+        
+        // Send the image to callback on main thread if available
+        if let callback = frameCallback {
+            DispatchQueue.main.async {
+                callback(image)
+            }
+        }
     }
 }

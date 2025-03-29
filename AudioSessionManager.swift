@@ -3,6 +3,8 @@ import AVFoundation
 class AudioSessionManager {
     static let shared = AudioSessionManager()
     
+    private var isActive = false
+    
     private init() {
         setupAudioSession()
     }
@@ -19,8 +21,11 @@ class AudioSessionManager {
     }
     
     func activate() {
+        guard !isActive else { return }
+        
         do {
             try AVAudioSession.sharedInstance().setActive(true)
+            isActive = true
             print("Audio session activated")
         } catch {
             print("Error activating audio session: \(error.localizedDescription)")
@@ -28,8 +33,11 @@ class AudioSessionManager {
     }
     
     func deactivate() {
+        guard isActive else { return }
+        
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            isActive = false
             print("Audio session deactivated")
         } catch {
             print("Error deactivating audio session: \(error)")
