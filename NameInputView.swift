@@ -29,6 +29,9 @@ struct NameInputView: View {
     @State private var introductionStarted = false
     @State private var nameRevealCompleted = false
     
+    // Flag to prevent multiple navigation attempts
+    @State private var hasTriggeredTransition = false
+    
     // For audio playback optimization
     @State private var audioPlayer: AVAudioPlayer? = nil
     
@@ -202,11 +205,16 @@ struct NameInputView: View {
                 }
             }
             .onAppear {
+                print("NameInputView: appeared")
+                
                 // Initialize audio player on appear to avoid the nil unwrapping crash
                 initializeAudioPlayer()
                 
                 // Generate fewer particles for better performance
                 generateParticles(in: geometry.size, count: 15)
+                
+                // Reset the transition flag on appear
+                hasTriggeredTransition = false
                 
                 // Animate title and container
                 withAnimation(.easeIn(duration: 1.0)) {
@@ -231,6 +239,7 @@ struct NameInputView: View {
                 }
             }
             .onDisappear {
+                print("NameInputView: disappeared")
                 cleanupResources()
             }
         }
@@ -277,6 +286,7 @@ struct NameInputView: View {
         // Safety timeout in case TTS callback fails
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             if !self.isListening {
+                print("NameInputView: TTS intro timeout, starting listening")
                 self.startListening()
             }
         }
@@ -306,6 +316,8 @@ struct NameInputView: View {
     }
     
     private func processCapturedName(_ name: String) {
+        print("NameInputView: Processing captured name: \(name)")
+        
         userName = name
         listeningText = ""
         
@@ -343,26 +355,73 @@ struct NameInputView: View {
                         
                         // Play greeting with the name after border animation appears
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            print("NameInputView: Starting TTS greeting for name: \(self.userName)")
-                            AudioSessionManager.shared.activate()
-                            self.ttsManager.speak("Hi \(self.userName)! It's nice to meet you, let's take you to the home menu.", voice: self.selectedVoice) {
-                                print("NameInputView: TTS greeting finished")
-                                self.greetingPlayed = true
-                                
-                                print("NameInputView: Scheduling transition to HomeView in 2.5 seconds")
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                    print("NameInputView: Deactivating audio session before transition")
-                                    AudioSessionManager.shared.deactivate()
-                                    DispatchQueue.main.async {
-                                        print("NameInputView: Calling onComplete with name: \(self.userName)")
-                                        self.onComplete(self.userName)
-                                    }
-                                }
-                            }
+                            self.playGreetingAndTransition()
                         }
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - New method for greeting and transition
+    private func playGreetingAndTransition() {
+        // Prevent multiple calls
+        guard !greetingPlayed && !hasTriggeredTransition else {
+            print("NameInputView: Already played greeting or triggered transition")
+            return
+        }
+        
+        print("NameInputView: Playing greeting for name: \(self.userName)")
+        
+        // Activate audio session for TTS
+        AudioSessionManager.shared.activate()
+        
+        // Play the greeting with TTS
+        ttsManager.speak("Hi \(self.userName)! It's nice to meet you, let's take you to the home menu.", voice: selectedVoice) { [self] in
+            print("NameInputView: TTS greeting finished, preparing for transition")
+            
+            // Mark greeting as played immediately
+            self.greetingPlayed = true
+            
+            // Use a reliable delay before transition
+            self.triggerScreenTransition()
+        }
+        
+        // Failsafe in case TTS completion doesn't fire
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+            if !self.hasTriggeredTransition {
+                print("NameInputView: TTS completion failsafe triggered")
+                self.greetingPlayed = true
+                self.triggerScreenTransition()
+            }
+        }
+    }
+    
+    // MARK: - Separate method for screen transition with guard
+    private func triggerScreenTransition() {
+        // Prevent multiple transitions
+        if hasTriggeredTransition {
+            print("NameInputView: Transition already triggered, ignoring duplicate")
+            return
+        }
+        
+        print("NameInputView: Triggering transition to HomeView")
+        
+        // Set flag to prevent duplicate transitions
+        hasTriggeredTransition = true
+        
+        // Cancel any TTS that might still be playing
+        ttsManager.cancelAllSpeech()
+        
+        // Deactivate audio session
+        AudioSessionManager.shared.deactivate()
+        
+        // Wait briefly then call the completion handler
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            print("NameInputView: Executing onComplete(\(self.userName))")
+            
+            // Call the completion handler provided by parent
+            self.onComplete(self.userName)
         }
     }
     
@@ -406,6 +465,8 @@ struct NameInputView: View {
     }
     
     private func cleanupResources() {
+        print("NameInputView: Cleaning up resources")
+        
         // Ensure timers are invalidated
         typingTimer?.invalidate()
         typingTimer = nil
@@ -415,6 +476,9 @@ struct NameInputView: View {
         
         // Ensure speech recognition is stopped
         speechRecognizers.stopRecording()
+        
+        // Cancel any TTS
+        ttsManager.cancelAllSpeech()
         
         // Deactivate audio session
         AudioSessionManager.shared.deactivate()
