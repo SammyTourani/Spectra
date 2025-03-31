@@ -6,7 +6,7 @@ struct VoiceSelectionView: View {
     let onVoiceSelected: (String) -> Void
     
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    private let ttsManager = AzureTTSManager.shared
+    @StateObject private var ttsManager = AzureTTSManager.shared
     
     @State private var voices = [
         ("Amy", "en-US-AriaNeural", "Hi, I'm Amy—clear and friendly. Say 'Select' to choose me."),
@@ -25,18 +25,15 @@ struct VoiceSelectionView: View {
     @State private var currentSample: String? = nil
     @State private var micRestartAttempts = 0
     @State private var lastRecognizedTime: Date = Date()
-    @State private var hasSelectedVoice = false
-    @State private var microphoneActive = false
-    @State private var stateTimers: [String: DispatchWorkItem] = [:]
+    @State private var hasSelectedVoice = false // To prevent multiple selections
+    @State private var isMicrophoneActive = false // Track actual microphone activity
     
     var body: some View {
         ZStack {
             ParticleBackground()
-                .drawingGroup()
                 .ignoresSafeArea()
             
             SineWaveBackground(phase: $wavePhase)
-                .drawingGroup()
                 .ignoresSafeArea()
             
             VStack(spacing: 40) {
@@ -57,134 +54,147 @@ struct VoiceSelectionView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            ListeningIndicator(active: microphoneActive)
-                .padding(.bottom, 30)
-                .padding(.trailing, 30)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .allowsHitTesting(false)
+            // Microphone indicator with reliable state tracking
+            if isMicrophoneActive {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        ListeningIndicator()
+                            .padding(.bottom, 30)
+                            .padding(.trailing, 30)
+                    }
+                }
+            }
         }
         .onAppear {
             print("VoiceSelectionView appeared")
-            clearAllTimers()
-            
             isTextVisible = true
+            isMicrophoneActive = false
+            
+            // Important: Reset selection state on appear
             hasSelectedVoice = false
             selectedVoice = nil
             activeVoice = nil
-            setMicrophoneActive(false)
             
             withAnimation(Animation.linear(duration: 8).repeatForever(autoreverses: false)) {
                 wavePhase = 2 * .pi
             }
             
-            let initTimer = DispatchWorkItem {
+            // Initialize view with slight delay to ensure proper setup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 initializeView()
             }
-            stateTimers["init"] = initTimer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: initTimer)
         }
         .onDisappear {
             print("VoiceSelectionView disappeared")
-            clearAllTimers()
             cleanupView()
         }
     }
     
-    private func clearAllTimers() {
-        for (_, timer) in stateTimers {
-            timer.cancel()
-        }
-        stateTimers.removeAll()
-    }
-    
-    private func setMicrophoneActive(_ active: Bool) {
-        DispatchQueue.main.async {
-            if self.microphoneActive != active {
-                self.microphoneActive = active
-                print(active ? "Microphone active - showing indicator" : "Microphone inactive - hiding indicator")
-            }
-        }
-    }
-    
     private func initializeView() {
+        // Prevent multiple initializations
         guard !viewInitialized else { return }
         
         print("Initializing voice selection view")
         viewInitialized = true
         
-        let startTimer = DispatchWorkItem {
-            resetAudioSession()
+        // Ensure proper sequencing with audio session
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // Ensure audio session is properly set up
+            self.resetAudioSession()
             
-            let introTimer = DispatchWorkItem {
-                AudioSessionManager.shared.activate()
-                ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: voices[0].1) {
+            // Now start the introduction with a slight delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Play introduction message
+                self.ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: self.voices[0].1) {
                     print("Introduction complete, starting listening")
-                    startListening()
+                    self.startListening()
                 }
                 
-                let failsafeTimer = DispatchWorkItem {
-                    if !isListening && !isSamplePlaying {
+                // Failsafe in case TTS completion doesn't trigger
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                    if !self.isListening && !self.isSamplePlaying {
                         print("Failsafe: Starting listening after introduction")
-                        startListening()
+                        self.startListening()
                     }
                 }
-                stateTimers["failsafe"] = failsafeTimer
-                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0, execute: failsafeTimer)
             }
-            
-            stateTimers["intro"] = introTimer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: introTimer)
         }
-        
-        stateTimers["start"] = startTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: startTimer)
     }
     
     private func cleanupView() {
         print("Cleaning up view resources")
-        clearAllTimers()
-        
         speechRecognizers.stopRecording()
         ttsManager.cancelAllSpeech()
-        AudioSessionManager.shared.deactivate()
+        deactivateAudioSession()
         isListening = false
-        setMicrophoneActive(false)
         isSamplePlaying = false
+        isMicrophoneActive = false
     }
     
     private func resetAudioSession() {
-        AudioSessionManager.shared.resetAndActivate()
+        // Try to deactivate first
+        deactivateAudioSession()
+        
+        // Short delay to let system stabilize
+        Thread.sleep(forTimeInterval: 0.1)
+        
+        // Reactivate session
+        AudioSessionManager.shared.activate()
+        print("Audio session reset and activated")
+    }
+    
+    private func deactivateAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            print("Audio session deactivated")
+        } catch {
+            print("Error deactivating audio session (ignorable): \(error)")
+        }
     }
     
     private func startListening() {
         print("Starting voice command listening")
         
+        // Don't restart if we're playing a sample or already selected a voice
         if isSamplePlaying || hasSelectedVoice {
             print("Sample playing or voice already selected, deferring listening")
             return
         }
         
-        clearAllTimers()
-        
+        // First ensure speech recognition is stopped
         speechRecognizers.stopRecording()
+        
+        // Reset audio session for clean start
         resetAudioSession()
         
+        // Update UI state
         isListening = true
         micRestartAttempts = 0
-        setMicrophoneActive(true)
         
+        // Start speech recognition with mic state tracking
         speechRecognizers.startRecording(
             onMicStateChange: { active in
-                self.setMicrophoneActive(active)
+                // Update microphone state with animation
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    self.isMicrophoneActive = active
+                }
+                print("Microphone active: \(active)")
             },
             onRecognition: { recognizedText in
+                // Update the time stamp for when we last received recognition
                 self.lastRecognizedTime = Date()
+                
                 print("Heard: \(recognizedText)")
                 
+                // Process voice commands if we're not in a sample and haven't already selected
                 if !self.isSamplePlaying && !self.hasSelectedVoice {
                     let lowerText = recognizedText.lowercased()
                     
+                    // Fix 1: Process "select" first, before voice names
                     if lowerText.contains("select") {
+                        // Process selection command
                         if let selected = self.selectedVoice {
                             print("Select command recognized")
                             self.selectVoice(selected)
@@ -195,6 +205,7 @@ struct VoiceSelectionView: View {
                         }
                     }
                     
+                    // Then process voice names
                     if lowerText.contains("amy") {
                         self.playSample(voice: self.voices[0])
                     } else if lowerText.contains("ben") {
@@ -208,8 +219,9 @@ struct VoiceSelectionView: View {
             }
         )
         
-        let restartTimer = DispatchWorkItem {
-            if self.isListening && !self.isSamplePlaying && !self.microphoneActive && !self.hasSelectedVoice {
+        // Restart listening if it stops unexpectedly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            if self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 print("Checking if microphone needs restarting")
                 self.micRestartAttempts += 1
                 if self.micRestartAttempts < 3 {
@@ -220,122 +232,124 @@ struct VoiceSelectionView: View {
                 }
             }
         }
-        
-        stateTimers["restart"] = restartTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: restartTimer)
     }
     
     private func resetAndRestartAudio() {
         print("Full audio system reset")
         
-        clearAllTimers()
-        
+        // Complete shutdown
         speechRecognizers.stopRecording()
         ttsManager.cancelAllSpeech()
-        AudioSessionManager.shared.deactivate()
-        setMicrophoneActive(false)
+        deactivateAudioSession()
         
-        let resetTimer = DispatchWorkItem {
+        // Update UI state - microphone is definitely off now
+        withAnimation {
+            isMicrophoneActive = false
+        }
+        
+        // Delay for system recovery
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.resetAudioSession()
             self.micRestartAttempts = 0
             self.isListening = false
             self.isSamplePlaying = false
             
-            let startTimer = DispatchWorkItem {
+            // Try to restart listening
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.startListening()
             }
-            self.stateTimers["start"] = startTimer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: startTimer)
         }
-        
-        stateTimers["reset"] = resetTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: resetTimer)
     }
     
     private func playSample(voice: (String, String, String)) {
         print("Playing sample for \(voice.0)")
         
-        clearAllTimers()
-        
+        // Track which sample we're playing
         currentSample = voice.0
+        
+        // Update state
         selectedVoice = voice.1
         activeVoice = voice.1
         isListening = false
-        setMicrophoneActive(false)
-        
         isSamplePlaying = true
+        
+        // Stop current speech recognition
         speechRecognizers.stopRecording()
+        
+        // Ensure microphone is shown as inactive
+        withAnimation {
+            isMicrophoneActive = false
+        }
+        
+        // Reset audio session for clean playback
         resetAudioSession()
         
-        AudioSessionManager.shared.activate()
+        // Play the voice sample
         ttsManager.speak(voice.2, voice: voice.1) {
             print("Sample finished for \(voice.0), resuming listening")
             self.samplePlaybackFinished()
         }
         
+        // CRITICAL FIX: Extended time estimates, especially for Dan's voice which might be slower
+        // Each voice sample is approximately 5-6 seconds to be safe
         let estimatedDuration = voice.0 == "Dan" ? TimeInterval(7.0) : TimeInterval(6.0)
         
-        let failsafe1 = DispatchWorkItem {
+        // Failsafe 1: At estimated duration
+        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 1: Sample may have completed without callback")
                 self.samplePlaybackFinished()
             }
         }
         
-        let failsafe2 = DispatchWorkItem {
+        // Failsafe 2: Extra buffer time
+        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration + 2.0) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 2: Forcing sample completion")
                 self.samplePlaybackFinished()
             }
         }
-        
-        stateTimers["failsafe1"] = failsafe1
-        stateTimers["failsafe2"] = failsafe2
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration, execute: failsafe1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration + 2.0, execute: failsafe2)
     }
     
     private func samplePlaybackFinished() {
+        // Make sure we only do this once
         guard isSamplePlaying else { return }
         
         print("Sample playback finished, resetting state")
         isSamplePlaying = false
         currentSample = nil
         
-        let resumeTimer = DispatchWorkItem {
+        // Resume listening with proper delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // Start listening
             self.startListening()
         }
-        
-        stateTimers["resume"] = resumeTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: resumeTimer)
     }
     
     private func promptForSelection() {
-        clearAllTimers()
-        
         isListening = false
-        setMicrophoneActive(false)
-        
         speechRecognizers.stopRecording()
-        resetAudioSession()
         
-        AudioSessionManager.shared.activate()
+        // Ensure microphone indicator is off
+        withAnimation {
+            isMicrophoneActive = false
+        }
+        
+        resetAudioSession()
         ttsManager.speak("Please say a name first to preview a voice.", voice: voices[0].1) {
             self.startListening()
         }
         
-        let promptTimer = DispatchWorkItem {
+        // Failsafe
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if !self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 self.startListening()
             }
         }
-        
-        stateTimers["prompt"] = promptTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: promptTimer)
     }
     
     private func selectVoice(_ voice: String) {
+        // Prevent multiple selections
         if hasSelectedVoice {
             print("Voice already selected, ignoring duplicate selection")
             return
@@ -343,40 +357,51 @@ struct VoiceSelectionView: View {
         
         print("Voice selected: \(voice)")
         
-        clearAllTimers()
-        
+        // Mark as selected to prevent multiple selections
         hasSelectedVoice = true
+        
+        // Update state
         isListening = false
-        setMicrophoneActive(false)
-        
-        isSamplePlaying = true
+        isSamplePlaying = true // Use this flag to prevent other audio
         speechRecognizers.stopRecording()
-        resetAudioSession()
         
-        AudioSessionManager.shared.activate()
+        // Ensure microphone indicator is off
+        withAnimation {
+            isMicrophoneActive = false
+        }
+        
+        // Play confirmation
+        resetAudioSession()
         ttsManager.speak("Voice selected. Let's proceed.", voice: voice) {
+            // Clean up before proceeding
             self.cleanupView()
+            
             print("Voice selection complete - navigating to next screen with voice: \(voice)")
+            
+            // Use main thread for UI navigation to prevent issues
             DispatchQueue.main.async {
                 self.onVoiceSelected(voice)
             }
         }
         
-        let navTimer = DispatchWorkItem {
+        // Failsafe for navigation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if self.hasSelectedVoice && self.isSamplePlaying {
                 print("Navigation failsafe triggered")
                 self.cleanupView()
+                
                 print("Voice selection complete (failsafe) - navigating to next screen with voice: \(voice)")
+                
+                // Use main thread for UI navigation
                 DispatchQueue.main.async {
                     self.onVoiceSelected(voice)
                 }
             }
         }
-        
-        stateTimers["navigation"] = navTimer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: navTimer)
     }
 }
+
+// MARK: - Component Views
 
 struct ParticleBackground: View {
     var body: some View {
@@ -384,10 +409,7 @@ struct ParticleBackground: View {
             TimelineView(.animation) { timeline in
                 ZStack {
                     LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color(red: 46/255, green: 49/255, blue: 146/255),
-                            Color(red: 27/255, green: 255/255, blue: 255/255)
-                        ]),
+                        gradient: Gradient(colors: [Color(red: 46/255, green: 49/255, blue: 146/255), Color(red: 27/255, green: 255/255, blue: 255/255)]),
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -416,11 +438,10 @@ struct SineWaveBackground: View {
                 let height = size.height
                 let waveHeight: CGFloat = 50
                 let frequency: CGFloat = 0.01
-                
-                for y in stride(from: 0, through: height, by: 40) {
+                for y in stride(from: 0, through: height, by: 20) {
                     let path = Path { p in
                         p.move(to: CGPoint(x: 0, y: y))
-                        for x in stride(from: 0, through: width, by: 5) {
+                        for x in stride(from: 0, through: width, by: 1) {
                             let sineValue = sin(frequency * x + phase + y * 0.02)
                             let offsetY = y + sineValue * waveHeight
                             p.addLine(to: CGPoint(x: x, y: offsetY))
@@ -493,10 +514,7 @@ struct VoiceOrb: View {
         ZStack {
             Circle()
                 .fill(RadialGradient(
-                    gradient: Gradient(colors: [
-                        Color(red: 27/255, green: 255/255, blue: 255/255).opacity(isActive ? 0.5 : isSelected ? 0.3 : 0),
-                        .clear
-                    ]),
+                    gradient: Gradient(colors: [Color(red: 27/255, green: 255/255, blue: 255/255).opacity(isActive ? 0.5 : isSelected ? 0.3 : 0), .clear]),
                     center: .center,
                     startRadius: 20,
                     endRadius: 60
@@ -521,8 +539,9 @@ struct VoiceOrb: View {
     }
 }
 
+// Simple microphone indicator that appears when the mic is active
 struct ListeningIndicator: View {
-    let active: Bool
+    @State private var pulseScale: CGFloat = 1.0
     
     var body: some View {
         ZStack {
@@ -532,16 +551,19 @@ struct ListeningIndicator: View {
                 .overlay(
                     Circle()
                         .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.8), lineWidth: 2)
-                        .scaleEffect(active ? 1.3 : 1.0)
+                        .scaleEffect(pulseScale)
+                        .opacity(2.0 - pulseScale)
                 )
-                .shadow(color: Color(red: 27/255, green: 255/255, blue: 255/255).opacity(active ? 0.3 : 0), radius: 4)
-                .opacity(active ? 1.0 : 0.0)
+                .shadow(color: Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.3), radius: 4)
+            
             Image(systemName: "mic.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.white)
-                .scaleEffect(active ? 1.2 : 1.0)
-                .opacity(active ? 1.0 : 0.0)
         }
-        .animation(.easeInOut(duration: 0.3), value: active)
+        .onAppear {
+            withAnimation(Animation.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+                pulseScale = 1.3
+            }
+        }
     }
 }
