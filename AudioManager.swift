@@ -1,7 +1,11 @@
+import Foundation
 import AVFoundation
+import SwiftUI
 
-class AudioManager: NSObject, ObservableObject {
-    @Published private(set) var isPlaying: Bool = false
+class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    
+    @Published var isPlaying = false
+    
     private var player: AVAudioPlayer?
     private var pendingCompletion: (() -> Void)?
     
@@ -12,6 +16,7 @@ class AudioManager: NSObject, ObservableObject {
     func playAudio(named fileName: String, completion: (() -> Void)? = nil) {
         guard let path = Bundle.main.path(forResource: fileName, ofType: "mp3") else {
             print("Could not find audio file: \(fileName)")
+            completion?()
             return
         }
         
@@ -22,8 +27,17 @@ class AudioManager: NSObject, ObservableObject {
             player?.delegate = self
             print("Playing \(fileName)")
             
+            // Make sure audio session is active before playing
+            AudioSessionManager.shared.activate()
+            
+            // Mark that audio playback is starting
+            AudioSessionManager.shared.markAudioPlaybackStarted()
+            
             self.isPlaying = true
             pendingCompletion = completion
+            
+            // Set volume to full for voice instructions
+            player?.volume = 1.0
             player?.play()
         } catch {
             print("Error playing audio: \(error.localizedDescription)")
@@ -32,22 +46,57 @@ class AudioManager: NSObject, ObservableObject {
     }
     
     func stopAudio() {
-        player?.stop()
-        isPlaying = false
-        player = nil
-        pendingCompletion = nil
+        if let player = player, player.isPlaying {
+            player.stop()
+            self.isPlaying = false
+            
+            // Mark that audio playback has ended
+            AudioSessionManager.shared.markAudioPlaybackEnded()
+            
+            // Call any pending completion handler
+            if let completion = pendingCompletion {
+                DispatchQueue.main.async {
+                    completion()
+                }
+                pendingCompletion = nil
+            }
+        }
     }
-}
-
-extension AudioManager: AVAudioPlayerDelegate {
+    
+    // AVAudioPlayerDelegate methods
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print("Finished playing audio, success: \(flag)")
+        
+        // Mark that audio playback has ended
+        AudioSessionManager.shared.markAudioPlaybackEnded()
+        
         DispatchQueue.main.async {
             self.isPlaying = false
-            print("Finished playing audio, success: \(flag)")
-            if flag {
-                self.pendingCompletion?()
+            if let completion = self.pendingCompletion {
+                completion()
                 self.pendingCompletion = nil
             }
         }
+    }
+    
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        print("Audio player decode error: \(error?.localizedDescription ?? "unknown error")")
+        
+        // Mark that audio playback has ended even though it failed
+        AudioSessionManager.shared.markAudioPlaybackEnded()
+        
+        DispatchQueue.main.async {
+            self.isPlaying = false
+            if let completion = self.pendingCompletion {
+                completion()
+                self.pendingCompletion = nil
+            }
+        }
+    }
+    
+    // Clean up when the manager is deallocated
+    deinit {
+        stopAudio()
+        print("AudioManager: Deinitialized")
     }
 }

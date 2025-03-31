@@ -98,7 +98,7 @@ struct WelcomeView: View {
             withAnimation(.easeIn(duration: 1.5)) {
                 textOpacity = 1.0
             }
-            AudioSessionManager.shared.activate()
+            AudioSessionManager.shared.activate() // Integrated speaker fix
             audioManager.playAudio(named: "welcome_audio") {
                 withAnimation(.easeInOut(duration: 0.5)) {
                     textOpacity = 0.0
@@ -108,20 +108,20 @@ struct WelcomeView: View {
                         currentStep = .waitingForPermissions
                         textOpacity = 1.0
                     }
-                    AudioSessionManager.shared.deactivate()
+                    AudioSessionManager.shared.deactivate() // Integrated speaker fix
                 }
             }
         }
         .onDisappear {
             audioManager.stopAudio()
-            AudioSessionManager.shared.deactivate()
+            AudioSessionManager.shared.deactivate() // Integrated speaker fix
         }
     }
     
     private func handleLongPress() {
         // Stop any playing audio immediately
         audioManager.stopAudio()
-        AudioSessionManager.shared.deactivate()
+        AudioSessionManager.shared.deactivate() // Integrated speaker fix
         
         withAnimation(.easeIn(duration: 0.3)) {
             isSkipping = true
@@ -161,8 +161,6 @@ struct WelcomeView: View {
         }
     }
 }
-
-// Keep existing AnimatedOverlay and FullScreenWaveBackground structs as they are
 
 struct AnimatedOverlay: View {
     @State private var scale: CGFloat = 1.0

@@ -3,9 +3,16 @@ import Foundation
 import UIKit
 
 class AzureTTSManager: ObservableObject {
+    // Singleton instance
+    static let shared = AzureTTSManager()
+    
     private let apiKey: String
     private let region: String
     private let baseURL: String
+    
+    // Priority speech protection
+    private var prioritySpeechInProgress = false
+    private var prioritySpeechID: String? = nil
     
     // Cache for previously synthesized speech
     private var audioCache: [String: Data] = [:]
@@ -28,7 +35,8 @@ class AzureTTSManager: ObservableObject {
     private var pendingSpeechTasks: [String: URLSessionDataTask] = [:]
     private let requestQueue = DispatchQueue(label: "com.spectra.tts.request", qos: .userInitiated)
     
-    init() {
+    // Make init private to enforce singleton pattern
+    private init() {
         self.apiKey = "BcZtnvJFdIxg9rexNdQUwOQYFay9YaGZMPUkBKPfgtE8VBEbQIgJJQQJ99BCACBsN54XJ3w3AAAYACOGpSuV"
         self.region = "canadacentral"
         self.baseURL = "https://\(region).tts.speech.microsoft.com/cognitiveservices/v1"
@@ -39,6 +47,53 @@ class AzureTTSManager: ObservableObject {
             name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil
         )
+    }
+    
+    // Method to start priority speech
+    func speakWithPriority(_ text: String, voice: String, completion: @escaping () -> Void) {
+        print("AzureTTSManager: Starting priority speech: \(text)")
+        prioritySpeechInProgress = true
+        let speechID = UUID().uuidString
+        prioritySpeechID = speechID
+        
+        speak(text, voice: voice) {
+            if self.prioritySpeechID == speechID {
+                self.prioritySpeechInProgress = false
+                self.prioritySpeechID = nil
+            }
+            completion()
+        }
+        
+        // Safety cleanup in case callback never fires
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+            if self.prioritySpeechID == speechID {
+                self.prioritySpeechInProgress = false
+                self.prioritySpeechID = nil
+            }
+        }
+    }
+    
+    func prefetchSpeech(_ text: String, voice: String) {
+        let cacheKey = "\(text)_\(voice)"
+        
+        // Only prefetch if not already cached
+        if audioCache[cacheKey] == nil {
+            print("AzureTTSManager: Prefetching speech: \(text)")
+            
+            // Begin request but don't need to track completion
+            requestQueue.async { [weak self] in
+                if let existingTask = self?.pendingSpeechTasks[cacheKey] {
+                    print("AzureTTSManager: Already fetching this speech")
+                    return
+                }
+                
+                self?.requestSpeech(text: text, voice: voice, cacheKey: cacheKey) {
+                    print("AzureTTSManager: Prefetch complete for: \(cacheKey)")
+                }
+            }
+        } else {
+            print("AzureTTSManager: Speech already cached: \(cacheKey)")
+        }
     }
     
     func speak(_ text: String, voice: String, completion: @escaping () -> Void) {
@@ -160,6 +215,10 @@ class AzureTTSManager: ObservableObject {
                 player.stop()
             }
             
+            // Ensure audio session is activated for playback
+            AudioSessionManager.shared.activate()
+            AudioSessionManager.shared.markAudioPlaybackStarted()
+            
             // Clear existing references
             self.currentPlayer = nil
             self.currentPlaybackDelegate = nil
@@ -172,9 +231,14 @@ class AzureTTSManager: ObservableObject {
                 // Create and store delegate with strong reference
                 let delegate = PlaybackDelegate { [weak self] success in
                     print("AzureTTSManager: Playback finished with success: \(success)")
+                    
+                    // Mark audio playback as ended
+                    AudioSessionManager.shared.markAudioPlaybackEnded()
+                    
                     // Clear the delegate reference
                     self?.currentPlaybackDelegate = nil
                     self?.currentPlayer = nil
+                    
                     DispatchQueue.main.async { completion() }
                 }
                 
@@ -188,6 +252,7 @@ class AzureTTSManager: ObservableObject {
                     print("AzureTTSManager: Playback started successfully")
                 } else {
                     print("AzureTTSManager: Playback failed to start")
+                    AudioSessionManager.shared.markAudioPlaybackEnded()
                     self.currentPlaybackDelegate = nil
                     self.currentPlayer = nil
                     DispatchQueue.main.async { completion() }
@@ -195,6 +260,7 @@ class AzureTTSManager: ObservableObject {
                 
             } catch {
                 print("AzureTTSManager: Audio player error: \(error)")
+                AudioSessionManager.shared.markAudioPlaybackEnded()
                 self.currentPlaybackDelegate = nil
                 self.currentPlayer = nil
                 DispatchQueue.main.async { completion() }
@@ -203,6 +269,12 @@ class AzureTTSManager: ObservableObject {
     }
     
     func cancelAllSpeech() {
+        // Check if priority speech is in progress
+        if prioritySpeechInProgress {
+            print("AzureTTSManager: Priority speech in progress, cancellation blocked")
+            return
+        }
+        
         requestQueue.async { [weak self] in
             self?.pendingSpeechTasks.values.forEach { $0.cancel() }
             self?.pendingSpeechTasks.removeAll()
@@ -213,6 +285,9 @@ class AzureTTSManager: ObservableObject {
             if let player = self?.currentPlayer, player.isPlaying {
                 print("AzureTTSManager: Stopping current playback on cancel")
                 player.stop()
+                
+                // Mark audio playback as ended
+                AudioSessionManager.shared.markAudioPlaybackEnded()
             }
             self?.currentPlayer = nil
             self?.currentPlaybackDelegate = nil

@@ -7,7 +7,7 @@ struct OnBoardingView: View {
     
     @StateObject private var audioManager = AudioManager()
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    @StateObject private var ttsManager = AzureTTSManager()
+    private let ttsManager = AzureTTSManager.shared
     @State private var currentStep: OnboardingStep = .initial
     @State private var pulseAnimation = false
     @State private var waveScale: CGFloat = 1.0
@@ -15,6 +15,7 @@ struct OnBoardingView: View {
     @State private var showSuccessAnimation = false
     @State private var instructionText: String = "Spectra is explaining how to use the app"
     @State private var isTransitioning = false
+    @State private var retryCount = 0 // Added for retry feedback
     
     enum OnboardingStep {
         case initial
@@ -134,17 +135,14 @@ struct OnBoardingView: View {
             waveOpacity = 0.8
         }
         
-        // Make sure we start with a clean audio session
         AudioSessionManager.shared.deactivate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             AudioSessionManager.shared.activate()
             
-            // Store the start time of the audio playback
             let audioStartTime = Date()
             
             audioManager.playAudio(named: "onboarding_audio") {
                 print("Onboarding audio finished naturally")
-                // Only proceed if we've played for at least 5 seconds
                 let playbackDuration = Date().timeIntervalSince(audioStartTime)
                 if playbackDuration >= 5.0 && self.currentStep == .playing {
                     DispatchQueue.main.async {
@@ -157,7 +155,6 @@ struct OnBoardingView: View {
     }
     
     private func setupSpeechRecognition() {
-        // Ensure we're not already in listening mode
         guard currentStep == .playing else {
             print("Speech recognition setup skipped - wrong state: \(currentStep)")
             return
@@ -166,7 +163,7 @@ struct OnBoardingView: View {
         print("Setting up speech recognition")
         withAnimation(.easeInOut(duration: 0.4)) {
             currentStep = .listening
-            instructionText = "Say 'Begin' to continue..."
+            instructionText = retryCount > 0 ? "Say 'Begin' again (\(retryCount + 1)/3)" : "Say 'Begin' to continue..."
         }
         
         withAnimation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
@@ -188,7 +185,6 @@ struct OnBoardingView: View {
             return
         }
         
-        // Reset audio session for speech recognition
         AudioSessionManager.shared.deactivate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             AudioSessionManager.shared.activate()
@@ -199,18 +195,20 @@ struct OnBoardingView: View {
                 }
             }
             
-            // Add timeout for speech recognition
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
-                if self.currentStep == .listening {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20.0) { // Extended timeout to 20 seconds
+                if self.currentStep == .listening && self.retryCount < 2 {
                     print("Speech timeout, prompting retry")
                     self.speechRecognizers.stopRecording()
-                    self.instructionText = "I didn't hear 'Begin'. Please try again."
-                    
-                    // Properly reset audio session before retrying
-                    AudioSessionManager.shared.deactivate()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.retryCount += 1
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        self.instructionText = "I didn't hear 'Begin'. Try again (\(self.retryCount + 1)/3)."
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         self.setupSpeechRecognition()
                     }
+                } else if self.currentStep == .listening {
+                    print("Max retries reached, moving forward")
+                    self.handleSuccess() // Proceed anyway after 3 tries
                 }
             }
         }
@@ -236,7 +234,6 @@ struct OnBoardingView: View {
             print("Success animation triggered")
         }
         
-        // Reset audio session for success sounds
         AudioSessionManager.shared.deactivate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             AudioSessionManager.shared.activate()
@@ -246,14 +243,9 @@ struct OnBoardingView: View {
                     print("Preparing to play TTS")
                     self.ttsManager.speak("Awesome, I can hear you loud and clear! Let's keep going.", voice: "en-US-JennyNeural") {
                         print("TTS finished - preparing for navigation")
-                        // First stop recording and audio
                         self.speechRecognizers.stopRecording()
                         self.audioManager.stopAudio()
-                        
-                        // Deactivate audio session
                         AudioSessionManager.shared.deactivate()
-                        
-                        // Wait for everything to clean up
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             print("All resources cleaned up, proceeding with navigation")
                             self.onComplete()
@@ -263,18 +255,17 @@ struct OnBoardingView: View {
             }
         }
     }
-
+    
     private func cleanupResources() {
-        print("Cleaning up resources")
         speechRecognizers.stopRecording()
         audioManager.stopAudio()
+        ttsManager.cancelAllSpeech()
         AudioSessionManager.shared.deactivate()
     }
     
     private func getStepIndex() -> Int {
         switch currentStep {
-        case .initial: return 0
-        case .playing: return 1
+        case .initial, .playing: return 1
         case .listening: return 2
         case .success: return 3
         }
@@ -286,41 +277,38 @@ struct DynamicWaveBackground: View {
     
     var body: some View {
         GeometryReader { geometry in
-            Canvas { context, size in
-                context.fill(
-                    Path(CGRect(origin: .zero, size: size)),
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            Color(red: 46/255, green: 49/255, blue: 146/255),
-                            Color(red: 27/255, green: 255/255, blue: 255/255)
-                        ]),
-                        startPoint: CGPoint(x: size.width / 2, y: 0),
-                        endPoint: CGPoint(x: size.width / 2, y: size.height)
-                    )
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 46/255, green: 49/255, blue: 146/255),
+                        Color(red: 27/255, green: 255/255, blue: 255/255)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
                 
-                for wave in 0..<4 {
-                    let waveOffset = Double(wave) * 0.8
-                    let path = Path { path in
-                        path.move(to: CGPoint(x: 0, y: size.height * (0.4 + CGFloat(wave) * 0.1)))
-                        for x in stride(from: 0, through: size.width, by: 1) {
-                            let y = size.height * (0.4 + CGFloat(wave) * 0.1) +
-                                    sin(phase + Double(x) / 80 + waveOffset) * 40 +
-                                    cos(phase * 0.3 + Double(x) / 120 + waveOffset) * 20
-                            path.addLine(to: CGPoint(x: x, y: y))
+                Canvas { context, size in
+                    for wave in 0..<3 {
+                        let waveOffset = Double(wave) * 0.5
+                        let path = Path { path in
+                            path.move(to: CGPoint(x: 0, y: size.height * 0.5))
+                            for x in stride(from: 0, through: size.width, by: 1) {
+                                let y = size.height * 0.5 +
+                                        sin(phase + Double(x) / 100 + waveOffset) * 60 +
+                                        cos(phase * 0.7 + Double(x) / 150 + waveOffset) * 30
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            }
                         }
-                        path.addLine(to: CGPoint(x: size.width, y: size.height))
-                        path.addLine(to: CGPoint(x: 0, y: size.height))
-                        path.closeSubpath()
+                        context.stroke(
+                            path,
+                            with: .color(Color.white.opacity(0.2 - Double(wave) * 0.05)),
+                            lineWidth: 2
+                        )
                     }
-                    context.fill(
-                        path,
-                        with: .color(Color.white.opacity(0.25 - Double(wave) * 0.05))
-                    )
                 }
             }
             .onAppear {
-                withAnimation(Animation.linear(duration: 3).repeatForever(autoreverses: false)) {
+                withAnimation(Animation.linear(duration: 4).repeatForever(autoreverses: false)) {
                     phase = 2 * .pi
                 }
             }
