@@ -35,6 +35,7 @@ struct ContentView: View {
                 WelcomeView(
                     onAppearAction: {},
                     onNext: { flowState = .onboarding },
+                    onDirectHome: { flowState = .home }, // Add new closure for direct home navigation
                     onPermissionDenied: { flowState = .permissionDenied }
                 )
                 .transition(.opacity)

@@ -1,60 +1,53 @@
 import AVFoundation
 
-class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+class AudioManager: NSObject, ObservableObject {
+    @Published private(set) var isPlaying: Bool = false
     private var player: AVAudioPlayer?
-    private var completion: (() -> Void)?
+    private var pendingCompletion: (() -> Void)?
     
-    var isPlaying: Bool {
-        return player?.isPlaying ?? false
+    override init() {
+        super.init()
     }
     
-    func playAudio(named name: String, completion: @escaping () -> Void) {
-        stopAudio()
-        
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mp3") else {
-            print("Error: Audio file \(name).mp3 not found in bundle")
-            completion()
+    func playAudio(named fileName: String, completion: (() -> Void)? = nil) {
+        guard let path = Bundle.main.path(forResource: fileName, ofType: "mp3") else {
+            print("Could not find audio file: \(fileName)")
             return
         }
+        
+        let url = URL(fileURLWithPath: path)
         
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
-            self.completion = completion
-            player?.prepareToPlay()
-            let success = player?.play()
-            if success == false {
-                print("Error: Failed to start playback for \(name)")
-                self.completion?()
-                self.completion = nil
-            } else {
-                print("Playing \(name).mp3")
-            }
+            print("Playing \(fileName)")
+            
+            self.isPlaying = true
+            pendingCompletion = completion
+            player?.play()
         } catch {
-            print("Error initializing player for \(name): \(error)")
-            completion()
-            self.completion = nil
+            print("Error playing audio: \(error.localizedDescription)")
+            completion?()
         }
     }
     
     func stopAudio() {
         player?.stop()
+        isPlaying = false
         player = nil
-        if completion != nil {
-            completion?()
-            completion = nil
-        }
+        pendingCompletion = nil
     }
-    
+}
+
+extension AudioManager: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print("Finished playing audio, success: \(flag)")
-        completion?()
-        completion = nil
-    }
-    
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        print("Audio decode error: \(error?.localizedDescription ?? "Unknown")")
-        completion?()
-        completion = nil
+        DispatchQueue.main.async {
+            self.isPlaying = false
+            print("Finished playing audio, success: \(flag)")
+            if flag {
+                self.pendingCompletion?()
+                self.pendingCompletion = nil
+            }
+        }
     }
 }

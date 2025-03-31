@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import UIKit // Add UIKit import for UIApplication
+import UIKit
 
 class AzureTTSManager: ObservableObject {
     private let apiKey: String
@@ -21,18 +21,18 @@ class AzureTTSManager: ObservableObject {
     
     // Audio player management
     private var currentPlayer: AVAudioPlayer?
+    private var currentPlaybackDelegate: PlaybackDelegate?
     private let playerQueue = DispatchQueue(label: "com.spectra.tts.player", qos: .userInitiated)
     
     // Pending requests management
     private var pendingSpeechTasks: [String: URLSessionDataTask] = [:]
     private let requestQueue = DispatchQueue(label: "com.spectra.tts.request", qos: .userInitiated)
     
-    init(apiKey: String, region: String) {
-        self.apiKey = apiKey
-        self.region = region
+    init() {
+        self.apiKey = "BcZtnvJFdIxg9rexNdQUwOQYFay9YaGZMPUkBKPfgtE8VBEbQIgJJQQJ99BCACBsN54XJ3w3AAAYACOGpSuV"
+        self.region = "canadacentral"
         self.baseURL = "https://\(region).tts.speech.microsoft.com/cognitiveservices/v1"
         
-        // Register for memory pressure notifications
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleMemoryPressure),
@@ -80,11 +80,10 @@ class AzureTTSManager: ObservableObject {
         request.addValue("audio-16khz-128kbitrate-mono-mp3", forHTTPHeaderField: "X-Microsoft-OutputFormat")
         request.addValue(UUID().uuidString, forHTTPHeaderField: "X-RequestId")
         
-        // Prepare SSML document - using more efficient string concatenation
         let ssml = """
         <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
             <voice name='\(voice)'>
-                <prosody rate="0.9">\(text.replacingOccurrences(of: "&", with: "&").replacingOccurrences(of: "<", with: "<").replacingOccurrences(of: ">", with: ">"))</prosody>
+                <prosody rate="0.9">\(text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;"))</prosody>
             </voice>
         </speak>
         """
@@ -92,12 +91,10 @@ class AzureTTSManager: ObservableObject {
         request.httpBody = ssml.data(using: .utf8)
         
         let task = session.dataTask(with: request) { [weak self] data, response, error in
-            // Remove from pending tasks
             self?.requestQueue.async {
                 self?.pendingSpeechTasks.removeValue(forKey: cacheKey)
             }
             
-            // Handle errors
             if let error = error {
                 if (error as NSError).code != NSURLErrorCancelled {
                     print("AzureTTSManager: Request error: \(error.localizedDescription)")
@@ -106,7 +103,6 @@ class AzureTTSManager: ObservableObject {
                 return
             }
             
-            // Validate HTTP response
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("AzureTTSManager: Invalid response from server")
                 DispatchQueue.main.async { completion() }
@@ -117,21 +113,17 @@ class AzureTTSManager: ObservableObject {
             
             guard (200...299).contains(httpResponse.statusCode),
                   let data = data, !data.isEmpty else {
-                print("AzureTTSManager: Response error - Status code: \(httpResponse.statusCode), Data: \(data?.count ?? 0) bytes")
+                print("AzureTTSManager: Response error - Status code: \(httpResponse.statusCode)")
                 DispatchQueue.main.async { completion() }
                 return
             }
             
             print("AzureTTSManager: Successfully received audio data of size: \(data.count) bytes")
             
-            // Cache the audio data
             self?.cacheAudioData(data, forKey: cacheKey)
-            
-            // Play the audio
             self?.playAudioData(data, completion: completion)
         }
         
-        // Store and start the task
         requestQueue.async { [weak self] in
             self?.pendingSpeechTasks[cacheKey] = task
             task.resume()
@@ -143,12 +135,9 @@ class AzureTTSManager: ObservableObject {
         requestQueue.async { [weak self] in
             guard let self = self else { return }
             
-            // Add to cache
             self.audioCache[key] = data
             
-            // Manage cache size
             if self.audioCache.count > self.maxCacheEntries {
-                // Remove random entry when cache gets too large
                 if let keyToRemove = self.audioCache.keys.randomElement() {
                     self.audioCache.removeValue(forKey: keyToRemove)
                 }
@@ -171,30 +160,43 @@ class AzureTTSManager: ObservableObject {
                 player.stop()
             }
             
+            // Clear existing references
+            self.currentPlayer = nil
+            self.currentPlaybackDelegate = nil
+            
             do {
                 // Create and configure audio player
                 let player = try AVAudioPlayer(data: data)
                 player.prepareToPlay()
-                self.currentPlayer = player
                 
-                // Set up completion handler
-                let playbackCompletion: (Bool) -> Void = { success in
+                // Create and store delegate with strong reference
+                let delegate = PlaybackDelegate { [weak self] success in
                     print("AzureTTSManager: Playback finished with success: \(success)")
+                    // Clear the delegate reference
+                    self?.currentPlaybackDelegate = nil
+                    self?.currentPlayer = nil
                     DispatchQueue.main.async { completion() }
                 }
                 
-                player.delegate = PlaybackDelegate(completion: playbackCompletion)
+                // Store strong references
+                self.currentPlaybackDelegate = delegate
+                self.currentPlayer = player
+                player.delegate = delegate
                 
                 // Start playback
                 if player.play() {
                     print("AzureTTSManager: Playback started successfully")
                 } else {
                     print("AzureTTSManager: Playback failed to start")
+                    self.currentPlaybackDelegate = nil
+                    self.currentPlayer = nil
                     DispatchQueue.main.async { completion() }
                 }
                 
             } catch {
                 print("AzureTTSManager: Audio player error: \(error)")
+                self.currentPlaybackDelegate = nil
+                self.currentPlayer = nil
                 DispatchQueue.main.async { completion() }
             }
         }
@@ -202,27 +204,22 @@ class AzureTTSManager: ObservableObject {
     
     func cancelAllSpeech() {
         requestQueue.async { [weak self] in
-            // Cancel all pending network requests
-            guard let self = self else { return }
-            for task in self.pendingSpeechTasks.values {
-                task.cancel()
-            }
-            self.pendingSpeechTasks.removeAll()
+            self?.pendingSpeechTasks.values.forEach { $0.cancel() }
+            self?.pendingSpeechTasks.removeAll()
             print("AzureTTSManager: Cancelled all pending speech tasks")
         }
         
         playerQueue.async { [weak self] in
-            // Stop current playback
             if let player = self?.currentPlayer, player.isPlaying {
                 print("AzureTTSManager: Stopping current playback on cancel")
                 player.stop()
             }
             self?.currentPlayer = nil
+            self?.currentPlaybackDelegate = nil
         }
     }
     
     @objc private func handleMemoryPressure() {
-        // Clear cache on memory pressure
         requestQueue.async { [weak self] in
             self?.audioCache.removeAll()
             print("AzureTTSManager: Cleared audio cache due to memory pressure")
@@ -236,9 +233,8 @@ class AzureTTSManager: ObservableObject {
     }
 }
 
-// Helper delegate class for audio player completion
 private class PlaybackDelegate: NSObject, AVAudioPlayerDelegate {
-    let completion: (Bool) -> Void
+    private let completion: (Bool) -> Void
     
     init(completion: @escaping (Bool) -> Void) {
         self.completion = completion
@@ -251,18 +247,5 @@ private class PlaybackDelegate: NSObject, AVAudioPlayerDelegate {
     
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         completion(false)
-    }
-}
-
-// Extend to make it compatible with UIKit's URL loading system for background tasks
-extension AzureTTSManager {
-    func applicationWillEnterForeground() {
-        // Refresh session if needed when app comes to foreground
-        session.configuration.waitsForConnectivity = true
-    }
-    
-    func applicationDidEnterBackground() {
-        // Ensure background tasks can complete if needed
-        session.configuration.waitsForConnectivity = false
     }
 }

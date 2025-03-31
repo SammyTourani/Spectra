@@ -7,10 +7,7 @@ struct NameInputView: View {
     let onComplete: (String) -> Void
     
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    @StateObject private var ttsManager = AzureTTSManager(
-        apiKey: "BcZtnvJFdIxg9rexNdQUwOQYFay9YaGZMPUkBKPfgtE8VBEbQIgJJQQJ99BCACBsN54XJ3w3AAAYACOGpSuV",
-        region: "canadacentral"
-    )
+    @StateObject private var ttsManager = AzureTTSManager()
     @StateObject private var audioManager = AudioManager()
     
     // State variables

@@ -7,10 +7,7 @@ struct OnBoardingView: View {
     
     @StateObject private var audioManager = AudioManager()
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    @StateObject private var ttsManager = AzureTTSManager(
-        apiKey: "BcZtnvJFdIxg9rexNdQUwOQYFay9YaGZMPUkBKPfgtE8VBEbQIgJJQQJ99BCACBsN54XJ3w3AAAYACOGpSuV",
-        region: "canadacentral"
-    )
+    @StateObject private var ttsManager = AzureTTSManager()
     @State private var currentStep: OnboardingStep = .initial
     @State private var pulseAnimation = false
     @State private var waveScale: CGFloat = 1.0
@@ -124,10 +121,7 @@ struct OnBoardingView: View {
             startOnboarding()
         }
         .onDisappear {
-            speechRecognizers.stopRecording()
-            audioManager.stopAudio()
-            ttsManager.cancelAllSpeech()
-            AudioSessionManager.shared.deactivate()
+            cleanupResources()
         }
     }
     
@@ -140,14 +134,35 @@ struct OnBoardingView: View {
             waveOpacity = 0.8
         }
         
-        AudioSessionManager.shared.activate()
-        audioManager.playAudio(named: "onboarding_audio") {
-            print("Onboarding audio finished, setting up speech recognition")
-            self.setupSpeechRecognition()
+        // Make sure we start with a clean audio session
+        AudioSessionManager.shared.deactivate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            AudioSessionManager.shared.activate()
+            
+            // Store the start time of the audio playback
+            let audioStartTime = Date()
+            
+            audioManager.playAudio(named: "onboarding_audio") {
+                print("Onboarding audio finished naturally")
+                // Only proceed if we've played for at least 5 seconds
+                let playbackDuration = Date().timeIntervalSince(audioStartTime)
+                if playbackDuration >= 5.0 && self.currentStep == .playing {
+                    DispatchQueue.main.async {
+                        print("Audio played for sufficient duration, proceeding to speech recognition")
+                        self.setupSpeechRecognition()
+                    }
+                }
+            }
         }
     }
     
     private func setupSpeechRecognition() {
+        // Ensure we're not already in listening mode
+        guard currentStep == .playing else {
+            print("Speech recognition setup skipped - wrong state: \(currentStep)")
+            return
+        }
+        
         print("Setting up speech recognition")
         withAnimation(.easeInOut(duration: 0.4)) {
             currentStep = .listening
@@ -163,7 +178,6 @@ struct OnBoardingView: View {
             print("Microphone permission denied: \(micPermission.rawValue)")
             currentStep = .initial
             instructionText = "Please enable microphone access in Settings."
-            AudioSessionManager.shared.deactivate()
             return
         }
         
@@ -171,25 +185,33 @@ struct OnBoardingView: View {
             print("Speech recognition not authorized")
             currentStep = .initial
             instructionText = "Please enable speech recognition in Settings."
-            AudioSessionManager.shared.deactivate()
             return
         }
         
-        AudioSessionManager.shared.activate()
-        speechRecognizers.startRecording { recognizedText in
-            print("Recognized text: \(recognizedText)")
-            if recognizedText.lowercased().contains("begin") {
-                self.handleSuccess()
+        // Reset audio session for speech recognition
+        AudioSessionManager.shared.deactivate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            AudioSessionManager.shared.activate()
+            self.speechRecognizers.startRecording { recognizedText in
+                print("Recognized text: \(recognizedText)")
+                if recognizedText.lowercased().contains("begin") {
+                    self.handleSuccess()
+                }
             }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
-            if self.currentStep == .listening {
-                print("Speech timeout, prompting retry")
-                self.speechRecognizers.stopRecording()
-                self.instructionText = "I didn't hear 'Begin'. Please try again."
-                AudioSessionManager.shared.deactivate()
-                self.setupSpeechRecognition()
+            
+            // Add timeout for speech recognition
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
+                if self.currentStep == .listening {
+                    print("Speech timeout, prompting retry")
+                    self.speechRecognizers.stopRecording()
+                    self.instructionText = "I didn't hear 'Begin'. Please try again."
+                    
+                    // Properly reset audio session before retrying
+                    AudioSessionManager.shared.deactivate()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.setupSpeechRecognition()
+                    }
+                }
             }
         }
     }
@@ -214,7 +236,7 @@ struct OnBoardingView: View {
             print("Success animation triggered")
         }
         
-        // Reset audio session for stability
+        // Reset audio session for success sounds
         AudioSessionManager.shared.deactivate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             AudioSessionManager.shared.activate()
@@ -223,40 +245,30 @@ struct OnBoardingView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     print("Preparing to play TTS")
                     self.ttsManager.speak("Awesome, I can hear you loud and clear! Let's keep going.", voice: "en-US-JennyNeural") {
-                        print("TTS finished - NAVIGATING NOW")
+                        print("TTS finished - preparing for navigation")
+                        // First stop recording and audio
                         self.speechRecognizers.stopRecording()
+                        self.audioManager.stopAudio()
+                        
+                        // Deactivate audio session
                         AudioSessionManager.shared.deactivate()
+                        
+                        // Wait for everything to clean up
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            DispatchQueue.main.async {
-                                print("Calling onComplete() to navigate to next screen")
-                                self.onComplete()
-                            }
+                            print("All resources cleaned up, proceeding with navigation")
+                            self.onComplete()
                         }
                     }
                 }
             }
-            
-            // Fallback for chime (adjusted to 3 seconds)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                if self.currentStep == .success && !self.audioManager.isPlaying {
-                    print("Chime fallback: Forcing completion")
-                    self.audioManager.stopAudio()
-                }
-            }
-            
-            // Backup timer (extended to 10 seconds)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                if self.isTransitioning && self.currentStep == .success {
-                    print("Backup navigation timer triggered")
-                    self.audioManager.stopAudio()
-                    self.ttsManager.cancelAllSpeech()
-                    AudioSessionManager.shared.deactivate()
-                    DispatchQueue.main.async {
-                        self.onComplete()
-                    }
-                }
-            }
         }
+    }
+
+    private func cleanupResources() {
+        print("Cleaning up resources")
+        speechRecognizers.stopRecording()
+        audioManager.stopAudio()
+        AudioSessionManager.shared.deactivate()
     }
     
     private func getStepIndex() -> Int {

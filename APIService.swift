@@ -10,7 +10,7 @@ class APIService {
     
     private var audioPlayer: AVAudioPlayer?
     
-    init(serverAddress: String = "172.18.179.5", port: Int = 8000) {
+    init(serverAddress: String = "192.168.2.82", port: Int = 8000) {
         self.baseURL = serverAddress
         self.port = port
     }

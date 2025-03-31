@@ -5,12 +5,14 @@ import Speech
 struct WelcomeView: View {
     let onAppearAction: () -> Void
     let onNext: () -> Void
+    let onDirectHome: () -> Void
     let onPermissionDenied: () -> Void
     
     @StateObject private var audioManager = AudioManager()
     @State private var currentStep: WelcomeStep = .initialWelcome
     @State private var animateLogo = false
     @State private var textOpacity: Double = 0.0
+    @State private var isSkipping = false
     
     enum WelcomeStep {
         case initialWelcome
@@ -35,45 +37,61 @@ struct WelcomeView: View {
                     .scaleEffect(animateLogo ? 1.0 : 0.96)
                     .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: animateLogo)
                 
-                if currentStep == .initialWelcome {
-                    Text("Welcome to Spectra")
-                        .font(.system(size: 42, weight: .bold))
+                if isSkipping {
+                    Text("Skipping to Home...")
+                        .font(.system(size: 24, weight: .medium))
                         .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                        .opacity(textOpacity)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if currentStep == .waitingForPermissions {
-                    Text("Tap to begin")
-                        .font(.system(size: 32, weight: .semibold))
+                        .transition(.opacity)
+                } else {
+                    if currentStep == .initialWelcome {
+                        Text("Welcome to Spectra")
+                            .font(.system(size: 42, weight: .bold))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .opacity(textOpacity)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if currentStep == .waitingForPermissions {
+                        Text("Tap to begin")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .opacity(textOpacity)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    if currentStep == .permissionsGranted {
+                        VStack(spacing: 10) {
+                            Text("All set! Loading...")
+                                .font(.system(size: 28, weight: .semibold))
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(1.2)
+                        }
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
                         .opacity(textOpacity)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                if currentStep == .permissionsGranted {
-                    VStack(spacing: 10) {
-                        Text("All set! Loading...")
-                            .font(.system(size: 28, weight: .semibold))
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(1.2)
                     }
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .opacity(textOpacity)
-                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 
                 Spacer()
             }
             .padding(.horizontal, 30)
         }
-        .onTapGesture {
-            if currentStep == .waitingForPermissions {
-                requestPermissions()
-            }
-        }
+        .gesture(
+            LongPressGesture(minimumDuration: 0.8)
+                .onEnded { _ in
+                    handleLongPress()
+                }
+        )
+        .simultaneousGesture(
+            TapGesture()
+                .onEnded {
+                    if currentStep == .waitingForPermissions && !isSkipping {
+                        requestPermissions()
+                    }
+                }
+        )
         .onAppear {
             onAppearAction()
             animateLogo = true
@@ -93,6 +111,25 @@ struct WelcomeView: View {
                     AudioSessionManager.shared.deactivate()
                 }
             }
+        }
+        .onDisappear {
+            audioManager.stopAudio()
+            AudioSessionManager.shared.deactivate()
+        }
+    }
+    
+    private func handleLongPress() {
+        // Stop any playing audio immediately
+        audioManager.stopAudio()
+        AudioSessionManager.shared.deactivate()
+        
+        withAnimation(.easeIn(duration: 0.3)) {
+            isSkipping = true
+            textOpacity = 0.0
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            onDirectHome()
         }
     }
     
@@ -124,6 +161,8 @@ struct WelcomeView: View {
         }
     }
 }
+
+// Keep existing AnimatedOverlay and FullScreenWaveBackground structs as they are
 
 struct AnimatedOverlay: View {
     @State private var scale: CGFloat = 1.0

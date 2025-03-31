@@ -6,10 +6,7 @@ struct VoiceSelectionView: View {
     let onVoiceSelected: (String) -> Void
     
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    @StateObject private var ttsManager = AzureTTSManager(
-        apiKey: "BcZtnvJFdIxg9rexNdQUwOQYFay9YaGZMPUkBKPfgtE8VBEbQIgJJQQJ99BCACBsN54XJ3w3AAAYACOGpSuV",
-        region: "canadacentral"
-    )
+    @StateObject private var ttsManager = AzureTTSManager()
     
     @State private var voices = [
         ("Amy", "en-US-AriaNeural", "Hi, I'm Amy—clear and friendly. Say 'Select' to choose me."),
@@ -98,20 +95,26 @@ struct VoiceSelectionView: View {
         print("Initializing voice selection view")
         viewInitialized = true
         
-        // Ensure audio session is properly set up
-        resetAudioSession()
-        
-        // Play introduction message
-        ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: voices[0].1) {
-            print("Introduction complete, starting listening")
-            self.startListening()
-        }
-        
-        // Failsafe in case TTS completion doesn't trigger
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
-            if !self.isListening && !self.isSamplePlaying {
-                print("Failsafe: Starting listening after introduction")
-                self.startListening()
+        // Ensure proper sequencing with audio session
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // Ensure audio session is properly set up
+            self.resetAudioSession()
+            
+            // Now start the introduction with a slight delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Play introduction message
+                self.ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: self.voices[0].1) {
+                    print("Introduction complete, starting listening")
+                    self.startListening()
+                }
+                
+                // Failsafe in case TTS completion doesn't trigger
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                    if !self.isListening && !self.isSamplePlaying {
+                        print("Failsafe: Starting listening after introduction")
+                        self.startListening()
+                    }
+                }
             }
         }
     }
