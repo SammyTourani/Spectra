@@ -26,24 +26,17 @@ struct VoiceSelectionView: View {
     @State private var micRestartAttempts = 0
     @State private var lastRecognizedTime: Date = Date()
     @State private var hasSelectedVoice = false
-    
-    // Improve mic indication with a namespace for animations
-    @Namespace private var micAnimation
     @State private var microphoneActive = false
-    @State private var microphoneOpacity = 0.0
-    
-    // Dedicated timer for state management
     @State private var stateTimers: [String: DispatchWorkItem] = [:]
     
     var body: some View {
         ZStack {
-            // Use drawingGroup for better GPU rendering of background
             ParticleBackground()
-                .drawingGroup() // Use Metal acceleration for particles
+                .drawingGroup()
                 .ignoresSafeArea()
             
             SineWaveBackground(phase: $wavePhase)
-                .drawingGroup() // Use Metal acceleration for sine waves
+                .drawingGroup()
                 .ignoresSafeArea()
             
             VStack(spacing: 40) {
@@ -64,33 +57,26 @@ struct VoiceSelectionView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            // Improve mic indicator positioning and animation
             ListeningIndicator(active: microphoneActive)
                 .padding(.bottom, 30)
                 .padding(.trailing, 30)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .opacity(microphoneOpacity)
-                .animation(.easeInOut(duration: 0.3), value: microphoneOpacity)
                 .allowsHitTesting(false)
         }
         .onAppear {
             print("VoiceSelectionView appeared")
             clearAllTimers()
             
-            // Reset states on appear
             isTextVisible = true
             hasSelectedVoice = false
             selectedVoice = nil
             activeVoice = nil
-            microphoneActive = false
-            microphoneOpacity = 0.0
+            setMicrophoneActive(false)
             
-            // Start wave animation
             withAnimation(Animation.linear(duration: 8).repeatForever(autoreverses: false)) {
                 wavePhase = 2 * .pi
             }
             
-            // Initialize view with a short delay
             let initTimer = DispatchWorkItem {
                 initializeView()
             }
@@ -104,12 +90,20 @@ struct VoiceSelectionView: View {
         }
     }
     
-    // Clear all timers to prevent race conditions
     private func clearAllTimers() {
         for (_, timer) in stateTimers {
             timer.cancel()
         }
         stateTimers.removeAll()
+    }
+    
+    private func setMicrophoneActive(_ active: Bool) {
+        DispatchQueue.main.async {
+            if self.microphoneActive != active {
+                self.microphoneActive = active
+                print(active ? "Microphone active - showing indicator" : "Microphone inactive - hiding indicator")
+            }
+        }
     }
     
     private func initializeView() {
@@ -128,7 +122,6 @@ struct VoiceSelectionView: View {
                     startListening()
                 }
                 
-                // Failsafe timer
                 let failsafeTimer = DispatchWorkItem {
                     if !isListening && !isSamplePlaying {
                         print("Failsafe: Starting listening after introduction")
@@ -155,13 +148,7 @@ struct VoiceSelectionView: View {
         ttsManager.cancelAllSpeech()
         AudioSessionManager.shared.deactivate()
         isListening = false
-        
-        // Ensure microphone indicator state is consistent
-        microphoneActive = false
-        withAnimation(.easeOut(duration: 0.3)) {
-            microphoneOpacity = 0.0
-        }
-        
+        setMicrophoneActive(false)
         isSamplePlaying = false
     }
     
@@ -177,7 +164,6 @@ struct VoiceSelectionView: View {
             return
         }
         
-        // Ensure all timers are cancelled to prevent overlaps
         clearAllTimers()
         
         speechRecognizers.stopRecording()
@@ -185,28 +171,11 @@ struct VoiceSelectionView: View {
         
         isListening = true
         micRestartAttempts = 0
-        
-        // The key improvement - set both states together with animation
-        DispatchQueue.main.async {
-            self.microphoneActive = true
-            withAnimation(.easeInOut(duration: 0.3)) {
-                self.microphoneOpacity = 1.0
-            }
-            print("Microphone active - showing indicator")
-        }
+        setMicrophoneActive(true)
         
         speechRecognizers.startRecording(
             onMicStateChange: { active in
-                DispatchQueue.main.async {
-                    // Always update both properties together on main thread
-                    if active != self.microphoneActive {
-                        self.microphoneActive = active
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            self.microphoneOpacity = active ? 1.0 : 0.0
-                        }
-                        print(active ? "Microphone active - showing indicator" : "Microphone inactive - hiding indicator")
-                    }
-                }
+                self.setMicrophoneActive(active)
             },
             onRecognition: { recognizedText in
                 self.lastRecognizedTime = Date()
@@ -239,7 +208,6 @@ struct VoiceSelectionView: View {
             }
         )
         
-        // Create a restart check timer
         let restartTimer = DispatchWorkItem {
             if self.isListening && !self.isSamplePlaying && !self.microphoneActive && !self.hasSelectedVoice {
                 print("Checking if microphone needs restarting")
@@ -260,20 +228,12 @@ struct VoiceSelectionView: View {
     private func resetAndRestartAudio() {
         print("Full audio system reset")
         
-        // Clear all timers
         clearAllTimers()
         
         speechRecognizers.stopRecording()
         ttsManager.cancelAllSpeech()
         AudioSessionManager.shared.deactivate()
-        
-        // Update microphone indicator state on main thread
-        DispatchQueue.main.async {
-            self.microphoneActive = false
-            withAnimation(.easeOut(duration: 0.3)) {
-                self.microphoneOpacity = 0.0
-            }
-        }
+        setMicrophoneActive(false)
         
         let resetTimer = DispatchWorkItem {
             self.resetAudioSession()
@@ -295,21 +255,13 @@ struct VoiceSelectionView: View {
     private func playSample(voice: (String, String, String)) {
         print("Playing sample for \(voice.0)")
         
-        // Clear all timers to prevent overlaps
         clearAllTimers()
         
         currentSample = voice.0
         selectedVoice = voice.1
         activeVoice = voice.1
         isListening = false
-        
-        // Update microphone indicator state on main thread
-        DispatchQueue.main.async {
-            self.microphoneActive = false
-            withAnimation(.easeOut(duration: 0.3)) {
-                self.microphoneOpacity = 0.0
-            }
-        }
+        setMicrophoneActive(false)
         
         isSamplePlaying = true
         speechRecognizers.stopRecording()
@@ -321,10 +273,8 @@ struct VoiceSelectionView: View {
             self.samplePlaybackFinished()
         }
         
-        // Calculate a reasonable timeout for the sample
         let estimatedDuration = voice.0 == "Dan" ? TimeInterval(7.0) : TimeInterval(6.0)
         
-        // Set failsafe timers for sample completion
         let failsafe1 = DispatchWorkItem {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 1: Sample may have completed without callback")
@@ -353,7 +303,6 @@ struct VoiceSelectionView: View {
         isSamplePlaying = false
         currentSample = nil
         
-        // Create timer for resuming listening
         let resumeTimer = DispatchWorkItem {
             self.startListening()
         }
@@ -363,18 +312,10 @@ struct VoiceSelectionView: View {
     }
     
     private func promptForSelection() {
-        // Clear timers
         clearAllTimers()
         
         isListening = false
-        
-        // Update microphone indicator state on main thread
-        DispatchQueue.main.async {
-            self.microphoneActive = false
-            withAnimation(.easeOut(duration: 0.3)) {
-                self.microphoneOpacity = 0.0
-            }
-        }
+        setMicrophoneActive(false)
         
         speechRecognizers.stopRecording()
         resetAudioSession()
@@ -384,7 +325,6 @@ struct VoiceSelectionView: View {
             self.startListening()
         }
         
-        // Set failsafe timer
         let promptTimer = DispatchWorkItem {
             if !self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 self.startListening()
@@ -403,19 +343,11 @@ struct VoiceSelectionView: View {
         
         print("Voice selected: \(voice)")
         
-        // Clear timers
         clearAllTimers()
         
         hasSelectedVoice = true
         isListening = false
-        
-        // Update microphone indicator state on main thread
-        DispatchQueue.main.async {
-            self.microphoneActive = false
-            withAnimation(.easeOut(duration: 0.3)) {
-                self.microphoneOpacity = 0.0
-            }
-        }
+        setMicrophoneActive(false)
         
         isSamplePlaying = true
         speechRecognizers.stopRecording()
@@ -430,7 +362,6 @@ struct VoiceSelectionView: View {
             }
         }
         
-        // Set navigation failsafe timer
         let navTimer = DispatchWorkItem {
             if self.hasSelectedVoice && self.isSamplePlaying {
                 print("Navigation failsafe triggered")
@@ -447,7 +378,6 @@ struct VoiceSelectionView: View {
     }
 }
 
-// The rest of the component definitions remain the same
 struct ParticleBackground: View {
     var body: some View {
         GeometryReader { geometry in
@@ -593,36 +523,25 @@ struct VoiceOrb: View {
 
 struct ListeningIndicator: View {
     let active: Bool
-    @State private var pulsePhase: CGFloat = 0.0
     
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color(red: 46/255, green: 49/255, blue: 146/255).opacity(active ? 0.6 : 0.3))
+                .fill(Color(red: 46/255, green: 49/255, blue: 146/255).opacity(0.6))
                 .frame(width: 40, height: 40)
                 .overlay(
                     Circle()
-                        .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(active ? 0.8 : 0.4), lineWidth: 2)
-                        .scaleEffect(active ? 1.0 + pulsePhase * 0.3 : 1.0)
-                        .opacity(active ? 1.0 - pulsePhase : 1.0)
+                        .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.8), lineWidth: 2)
+                        .scaleEffect(active ? 1.3 : 1.0)
                 )
                 .shadow(color: Color(red: 27/255, green: 255/255, blue: 255/255).opacity(active ? 0.3 : 0), radius: 4)
+                .opacity(active ? 1.0 : 0.0)
             Image(systemName: "mic.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.white)
                 .scaleEffect(active ? 1.2 : 1.0)
+                .opacity(active ? 1.0 : 0.0)
         }
         .animation(.easeInOut(duration: 0.3), value: active)
-        .onChange(of: active) { newValue in
-            if newValue {
-                withAnimation(Animation.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
-                    pulsePhase = 1.0
-                }
-            } else {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    pulsePhase = 0.0
-                }
-            }
-        }
     }
 }
