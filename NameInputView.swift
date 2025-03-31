@@ -217,15 +217,15 @@ struct NameInputView: View {
                 .shadow(color: Color(red: 27/255, green: 205/255, blue: 255/255).opacity(0.7), radius: 15, x: 0, y: 0)
                 .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 2)
                 .opacity(titleOpacity)
-                .offset(y: titleOpacity * 10 - 10) // Add vertical movement during fade-in
+                .offset(y: titleOpacity * 10 - 10)
             
             Text("Let me learn who you are")
                 .font(.system(size: 18, weight: .medium, design: .rounded))
                 .foregroundColor(.white.opacity(0.7))
                 .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
                 .opacity(titleOpacity * 0.8)
-                .offset(y: titleOpacity * 8 - 8) // Slightly different offset for staggered effect
-                .blur(radius: (1 - titleOpacity) * 5) // Blur effect that clears as opacity increases
+                .offset(y: titleOpacity * 8 - 8)
+                .blur(radius: (1 - titleOpacity) * 5)
         }
         .drawingGroup()
     }
@@ -382,7 +382,6 @@ struct NameInputView: View {
     
     private func typingStateView() -> some View {
         ZStack {
-            // Character-by-character fade in with cursor
             HStack(spacing: 0) {
                 ForEach(0..<min(typingIndex, userName.count), id: \.self) { index in
                     let character = String(userName[userName.index(userName.startIndex, offsetBy: index)])
@@ -404,7 +403,6 @@ struct NameInputView: View {
                         .id("char\(index)")
                 }
                 
-                // Animated cursor
                 if typingIndex < userName.count {
                     Text("|")
                         .font(.system(size: 40, weight: .bold, design: .rounded))
@@ -461,8 +459,8 @@ struct NameInputView: View {
                                 .white,
                                 Color(red: 27/255, green: 205/255, blue: 255/255).opacity(0.8)
                             ]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            startPoint: UnitPoint(x: borderRotation.truncatingRemainder(dividingBy: 2) - 1, y: 0),
+                            endPoint: UnitPoint(x: borderRotation.truncatingRemainder(dividingBy: 2), y: 0)
                         )
                     )
                     .shadow(color: Color(red: 27/255, green: 205/255, blue: 255/255).opacity(0.7), radius: 10, x: 0, y: 0)
@@ -470,6 +468,7 @@ struct NameInputView: View {
                     .padding(.horizontal, 20)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .scaleEffect(nameRevealCompleted ? 1.0 : 0.8)
                 
                 if greetingPlayed {
                     Text("Nice to meet you!")
@@ -486,12 +485,17 @@ struct NameInputView: View {
                                         .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
                                 )
                         )
-                        .opacity(greetingPlayed ? 1 : 0)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(.asymmetric(
+                            insertion: .opacity
+                                .combined(with: .move(edge: .bottom))
+                                .combined(with: .scale(scale: 0.8)),
+                            removal: .opacity
+                                .combined(with: .scale(scale: 1.1))
+                        ))
                 }
             }
             .opacity(nameRevealCompleted ? 1 : 0)
-            .animation(.easeIn(duration: 0.8), value: nameRevealCompleted)
+            .animation(.spring(response: 0.6, dampingFraction: 0.7), value: nameRevealCompleted)
         }
     }
     
@@ -525,7 +529,7 @@ struct NameInputView: View {
                         .shadow(color: Color(red: 27/255, green: 205/255, blue: 255/255).opacity(0.5), radius: 8, x: 0, y: 0)
                 }
                 
-                Text(introductionStartTime != nil ? "Listening..." : listeningText)
+                Text(listeningText)
                     .font(.system(size: 22, weight: .medium, design: .rounded))
                     .foregroundColor(.white.opacity(0.9))
                     .shadow(color: .black.opacity(0.3), radius: 3)
@@ -540,13 +544,6 @@ struct NameInputView: View {
                             )
                             .blur(radius: 0.5)
                     )
-                
-                Text("Tap the mic to begin")
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                    .foregroundColor(.white.opacity(0.7))
-                    .shadow(color: .black.opacity(0.3), radius: 1)
-                    .opacity(nameHintOpacity)
-                    .padding(.top, 10)
             }
             .transition(
                 .asymmetric(
@@ -565,7 +562,7 @@ struct NameInputView: View {
         
         hasTriggeredTransition = false
         
-        withAnimation(.easeIn(duration: 1.0)) {
+        withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
             titleOpacity = 1
             containerOpacity = 1
         }
@@ -591,12 +588,6 @@ struct NameInputView: View {
         startAudioVisualizerSimulation()
         
         viewFullyAppeared = true
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.easeIn(duration: 0.8)) {
-                nameHintOpacity = 0.7
-            }
-        }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             runNameIntroductionSequence()
@@ -689,6 +680,8 @@ struct NameInputView: View {
         print("NameInputView: Starting introduction sequence")
         introductionStarted = true
         
+        listeningText = "I'll help you get started..."
+        
         introductionStartTime = Date()
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -696,6 +689,10 @@ struct NameInputView: View {
             
             print("NameInputView: Playing name introduction")
             self.ttsManager.speak("Please say your name so I can greet you properly.", voice: self.selectedVoice) {
+                DispatchQueue.main.async {
+                    self.listeningText = "I'm listening..."
+                    print("NameInputView: Azure AI voice finished, updating listening state")
+                }
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
@@ -713,7 +710,6 @@ struct NameInputView: View {
         }
         
         isListening = true
-        listeningText = "I'm listening..."
         
         speechRecognizers.startRecording { recognizedText in
             if !recognizedText.isEmpty && recognizedText.count > 2 {
@@ -743,9 +739,14 @@ struct NameInputView: View {
         typingTimer?.invalidate()
         typingTimer = nil
         
-        typingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
+        let typingDuration = min(0.1, max(0.05, 1.0 / Double(userName.count)))
+        
+        typingTimer = Timer.scheduledTimer(withTimeInterval: typingDuration, repeats: true) { timer in
             if self.typingIndex < self.userName.count {
-                self.typingIndex += 1
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                    self.typingIndex += 1
+                }
+                
                 if let player = self.audioPlayer, player.duration > 0 {
                     AudioSessionManager.shared.activate()
                     player.play()
@@ -756,12 +757,16 @@ struct NameInputView: View {
                 timer.invalidate()
                 self.typingTimer = nil
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.typingInProgress = false
-                    self.showConfirmation = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        self.typingInProgress = false
+                        self.showConfirmation = true
+                    }
                     
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        self.nameRevealCompleted = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                            self.nameRevealCompleted = true
+                        }
                         
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             self.runNameConfirmationSequence()
@@ -772,6 +777,7 @@ struct NameInputView: View {
         }
     }
     
+    // MARK: - Name Confirmation Sequence
     private func runNameConfirmationSequence() {
         guard !greetingPlayed && !hasTriggeredTransition else {
             print("NameInputView: Already played greeting or triggered transition")
@@ -786,15 +792,22 @@ struct NameInputView: View {
         
         print("NameInputView: Playing greeting")
         let greeting = "Hi \(self.userName)! It's nice to meet you, let's take you to the home menu."
+        
+        // Use the completion handler with no parameters
         self.ttsManager.speak(greeting, voice: self.selectedVoice) {
+            print("NameInputView: TTS greeting completed")
+            
+            // Only trigger transition after TTS has finished
+            DispatchQueue.main.async {
+                self.triggerScreenTransition()
+            }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-            print("NameInputView: Fixed greeting delay completed, preparing transition")
-            self.triggerScreenTransition()
-        }
+        // Remove the fixed delay for transition
+        // The transition will now be triggered by the completion handler above
     }
     
+    // MARK: - Trigger Screen Transition
     private func triggerScreenTransition() {
         if hasTriggeredTransition {
             print("NameInputView: Transition already triggered, ignoring duplicate")
@@ -811,7 +824,6 @@ struct NameInputView: View {
             waveFade = 0
         }
         
-        ttsManager.cancelAllSpeech()
         AudioSessionManager.shared.deactivate()
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -988,7 +1000,7 @@ struct ConfettiPieceView: View {
             .fill(piece.color)
             .frame(width: piece.size, height: piece.size * 3)
             .position(x: piece.position.x, y: piece.position.y + yPosition)
-            .rotationEffect(. degrees(rotation))
+            .rotationEffect(.degrees(rotation))
             .opacity(opacity)
             .onAppear {
                 withAnimation(
