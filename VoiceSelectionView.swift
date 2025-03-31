@@ -7,20 +7,15 @@ import Speech
 struct VoiceSelectionView: View {
     // MARK: - Properties
     
-    /// Callback triggered when a voice is selected to proceed to next screen
     let onVoiceSelected: (String) -> Void
     
     // MARK: - State Objects
     
-    /// Speech recognition manager
     @StateObject private var speechRecognizers = SpeechRecognizers()
-    
-    /// Text-to-speech manager for voice playback
     @StateObject private var ttsManager = AzureTTSManager.shared
     
     // MARK: - State Variables
     
-    /// Available voice options with display name, voice ID, and sample text
     @State private var voices = [
         ("Amy", "en-US-AriaNeural", "Hi, I'm Amy—clear and friendly. Say 'Select' to choose me."),
         ("Ben", "en-US-GuyNeural", "I'm Ben—calm and steady. Say 'Select' to pick me."),
@@ -28,38 +23,22 @@ struct VoiceSelectionView: View {
         ("Dan", "en-US-ChristopherNeural", "I'm Dan—strong and direct. Say 'Select' to activate me.")
     ]
     
-    /// Voice ID of the currently selected voice
     @State private var selectedVoice: String? = nil
-    
-    /// Voice ID of the voice being previewed
     @State private var activeVoice: String? = nil
-    
-    /// Whether speech recognition is active
     @State private var isListening = false
-    
-    /// Controls visibility of UI text elements
     @State private var isTextVisible = false
-    
-    /// Tracks if view setup has completed
     @State private var viewInitialized = false
-    
-    /// Whether a voice sample is currently playing
     @State private var isSamplePlaying = false
-    
-    /// Name of the currently playing voice sample
     @State private var currentSample: String? = nil
-    
-    /// Counter for microphone restart attempts
     @State private var micRestartAttempts = 0
-    
-    /// Time of last voice recognition
     @State private var lastRecognizedTime: Date = Date()
-    
-    /// Whether a voice has been chosen (prevents multiple selections)
     @State private var hasSelectedVoice = false
-    
-    /// Tracks actual microphone activity for UI feedback
     @State private var isMicrophoneActive = false
+    @State private var titleAnimationPhase = 0.0
+    @State private var selectionAnimationActive = false
+    @State private var selectedVoiceName: String? = nil
+    @State private var listeningStarted = false
+    @State private var backgroundGradientAngle: Double = 0 // Added for background animation
     
     // MARK: - Body
     
@@ -67,54 +46,45 @@ struct VoiceSelectionView: View {
         ZStack {
             // MARK: - Background Elements
             
-            // Gradient background
-            LinearGradient(
-                colors: [
-                    Color(red: 46/255, green: 49/255, blue: 146/255),
-                    Color(red: 20/255, green: 30/255, blue: 90/255)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            NameInputBackground(backgroundGradientAngle: $backgroundGradientAngle)
+                .ignoresSafeArea()
             
-            // Simple animated particles
-            SimpleParticleBackground()
+            EnhancedParticleBackground(isListening: isListening, hasSelectedVoice: hasSelectedVoice)
                 .ignoresSafeArea()
             
             // MARK: - Content Layer
             
             VStack(spacing: 40) {
-                // Title with gradient
-                Text("Choose Your Voice")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.3), radius: 3)
-                    .opacity(isTextVisible ? 1.0 : 0.0)
-                    .animation(.easeIn(duration: 1.0), value: isTextVisible)
+                AnimatedTitleView(
+                    text: "Choose Your Voice",
+                    isVisible: isTextVisible,
+                    isListeningStarted: listeningStarted
+                )
+                .padding(.top, 20)
                 
-                // Voice selection grid
                 SimpleVoiceGrid(
                     voices: voices,
                     selectedVoice: $selectedVoice,
                     activeVoice: $activeVoice,
+                    hasSelectedFinal: hasSelectedVoice,
                     onActivate: { voice in playSample(voice: voice) }
                 )
                 .frame(width: 340, height: 340)
                 .opacity(isTextVisible ? 1.0 : 0.0)
                 .animation(.easeIn(duration: 1.0).delay(0.3), value: isTextVisible)
+                .scaleEffect(selectionAnimationActive ? 0.95 : 1.0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: selectionAnimationActive)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // MARK: - Overlay Elements
             
-            // Microphone indicator
             if isMicrophoneActive {
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        SimpleMicIndicator()
+                        EnhancedMicIndicator()
                             .padding(.bottom, 30)
                             .padding(.trailing, 30)
                             .transition(.opacity)
@@ -122,10 +92,14 @@ struct VoiceSelectionView: View {
                 }
             }
             
-            // Sample playback overlay
             if isSamplePlaying, let currentSample = currentSample,
                let voiceIndex = voices.firstIndex(where: { $0.0 == currentSample }) {
-                SamplePlaybackView(voiceText: voices[voiceIndex].2)
+                EnhancedSamplePlaybackView(voiceText: voices[voiceIndex].2, voiceName: voices[voiceIndex].0)
+                    .transition(.opacity)
+            }
+            
+            if hasSelectedVoice, let name = selectedVoiceName {
+                ModernSelectionAnimation(voiceName: name)
                     .transition(.opacity)
             }
         }
@@ -133,14 +107,17 @@ struct VoiceSelectionView: View {
             print("VoiceSelectionView appeared")
             resetViewState()
             
-            // Show UI elements with animation
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isTextVisible = true
             }
             
-            // Initialize view with slight delay for proper setup
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 initializeView()
+            }
+            
+            // Start background gradient animation
+            withAnimation(Animation.linear(duration: 30).repeatForever(autoreverses: false)) {
+                backgroundGradientAngle = 360
             }
         }
         .onDisappear {
@@ -151,41 +128,37 @@ struct VoiceSelectionView: View {
     
     // MARK: - Helper Methods
     
-    /// Resets all view state on appear
     private func resetViewState() {
         isMicrophoneActive = false
-        
-        // Reset selection states
         hasSelectedVoice = false
         selectedVoice = nil
         activeVoice = nil
+        selectionAnimationActive = false
+        titleAnimationPhase = 0.0
+        listeningStarted = false
+        backgroundGradientAngle = 0 // Reset background angle
     }
     
-    /// Initializes speech recognition and TTS
     private func initializeView() {
-        // Prevent multiple initializations
         guard !viewInitialized else { return }
         
         print("Initializing voice selection view")
         viewInitialized = true
         
-        // Ensure proper sequencing with audio session
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            // Ensure audio session is properly set up
             self.resetAudioSession()
             
-            // Start the introduction with slight delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                // Play introduction message
                 self.ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: self.voices[0].1) {
                     print("Introduction complete, starting listening")
+                    self.animateTitle()
                     self.startListening()
                 }
                 
-                // Failsafe in case TTS completion doesn't trigger
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
                     if !self.isListening && !self.isSamplePlaying {
                         print("Failsafe: Starting listening after introduction")
+                        self.animateTitle()
                         self.startListening()
                     }
                 }
@@ -193,7 +166,12 @@ struct VoiceSelectionView: View {
         }
     }
     
-    /// Releases resources on view dismissal
+    private func animateTitle() {
+        withAnimation(.spring(response: 1.2, dampingFraction: 0.8, blendDuration: 0.5)) {
+            titleAnimationPhase = 1.0
+        }
+    }
+    
     private func cleanupView() {
         print("Cleaning up view resources")
         speechRecognizers.stopRecording()
@@ -204,20 +182,13 @@ struct VoiceSelectionView: View {
         isMicrophoneActive = false
     }
     
-    /// Resets the audio session to ensure clean state
     private func resetAudioSession() {
-        // Try to deactivate first
         deactivateAudioSession()
-        
-        // Short delay to let system stabilize
         Thread.sleep(forTimeInterval: 0.1)
-        
-        // Reactivate session
         AudioSessionManager.shared.activate()
         print("Audio session reset and activated")
     }
     
-    /// Deactivates the audio session
     private func deactivateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -227,48 +198,35 @@ struct VoiceSelectionView: View {
         }
     }
     
-    /// Starts voice recognition
     private func startListening() {
         print("Starting voice command listening")
         
-        // Don't restart if we're playing a sample or already selected a voice
         if isSamplePlaying || hasSelectedVoice {
             print("Sample playing or voice already selected, deferring listening")
             return
         }
         
-        // First ensure speech recognition is stopped
         speechRecognizers.stopRecording()
-        
-        // Reset audio session for clean start
         resetAudioSession()
-        
-        // Update UI state
         isListening = true
         micRestartAttempts = 0
+        listeningStarted = true
         
-        // Start speech recognition with mic state tracking
         speechRecognizers.startRecording(
             onMicStateChange: { active in
-                // Update microphone state with animation
                 withAnimation(.easeInOut(duration: 0.3)) {
                     self.isMicrophoneActive = active
                 }
                 print("Microphone active: \(active)")
             },
             onRecognition: { recognizedText in
-                // Update the time stamp for when we last received recognition
                 self.lastRecognizedTime = Date()
-                
                 print("Heard: \(recognizedText)")
                 
-                // Process voice commands if we're not in a sample and haven't already selected
                 if !self.isSamplePlaying && !self.hasSelectedVoice {
                     let lowerText = recognizedText.lowercased()
                     
-                    // Process "select" first, before voice names
                     if lowerText.contains("select") {
-                        // Process selection command
                         if let selected = self.selectedVoice {
                             print("Select command recognized")
                             self.selectVoice(selected)
@@ -279,7 +237,6 @@ struct VoiceSelectionView: View {
                         }
                     }
                     
-                    // Then process voice names
                     if lowerText.contains("amy") {
                         self.playSample(voice: self.voices[0])
                     } else if lowerText.contains("ben") {
@@ -293,7 +250,6 @@ struct VoiceSelectionView: View {
             }
         )
         
-        // Restart listening if it stops unexpectedly
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             if self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 print("Checking if microphone needs restarting")
@@ -308,69 +264,52 @@ struct VoiceSelectionView: View {
         }
     }
     
-    /// Performs a full reset of the audio system when issues are detected
     private func resetAndRestartAudio() {
         print("Full audio system reset")
-        
-        // Complete shutdown
         speechRecognizers.stopRecording()
         ttsManager.cancelAllSpeech()
         deactivateAudioSession()
         
-        // Update UI state - microphone is definitely off now
         withAnimation {
             isMicrophoneActive = false
         }
         
-        // Delay for system recovery
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.resetAudioSession()
             self.micRestartAttempts = 0
             self.isListening = false
             self.isSamplePlaying = false
             
-            // Try to restart listening
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.startListening()
             }
         }
     }
     
-    /// Plays a voice sample with reliable completion handling
     private func playSample(voice: (String, String, String)) {
         print("Playing sample for \(voice.0)")
-        
-        // Track which sample we're playing
         currentSample = voice.0
-        
-        // Update state
         selectedVoice = voice.1
         activeVoice = voice.1
         isListening = false
         isSamplePlaying = true
         
-        // Add haptic feedback
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        // Stop current speech recognition
         speechRecognizers.stopRecording()
         
-        // Ensure microphone is shown as inactive
         withAnimation {
             isMicrophoneActive = false
         }
         
-        // Reset audio session for clean playback
         resetAudioSession()
         
-        // Play the voice sample
         ttsManager.speak(voice.2, voice: voice.1) {
             print("Sample finished for \(voice.0), resuming listening")
             self.samplePlaybackFinished()
         }
         
-        // Failsafe 1: At estimated duration
         let estimatedDuration = voice.0 == "Dan" ? TimeInterval(7.0) : TimeInterval(6.0)
         DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
@@ -379,7 +318,6 @@ struct VoiceSelectionView: View {
             }
         }
         
-        // Failsafe 2: Extra buffer time
         DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration + 2.0) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 2: Forcing sample completion")
@@ -388,33 +326,26 @@ struct VoiceSelectionView: View {
         }
     }
     
-    /// Handles sample playback completion with proper state restoration
     private func samplePlaybackFinished() {
-        // Make sure we only do this once
         guard isSamplePlaying else { return }
         
         print("Sample playback finished, resetting state")
         isSamplePlaying = false
         currentSample = nil
         
-        // Resume listening with proper delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            // Start listening
             self.startListening()
         }
     }
     
-    /// Prompts the user to select a voice first
     private func promptForSelection() {
         isListening = false
         speechRecognizers.stopRecording()
         
-        // Ensure microphone indicator is off
         withAnimation {
             isMicrophoneActive = false
         }
         
-        // Error feedback
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
         
@@ -423,7 +354,6 @@ struct VoiceSelectionView: View {
             self.startListening()
         }
         
-        // Failsafe
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if !self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 self.startListening()
@@ -431,56 +361,47 @@ struct VoiceSelectionView: View {
         }
     }
     
-    /// Finalizes voice selection and navigates forward
     private func selectVoice(_ voice: String) {
-        // Prevent multiple selections
         if hasSelectedVoice {
             print("Voice already selected, ignoring duplicate selection")
             return
         }
         
         print("Voice selected: \(voice)")
-        
-        // Mark as selected to prevent multiple selections
         hasSelectedVoice = true
-        
-        // Update state
         isListening = false
-        isSamplePlaying = true // Use this flag to prevent other audio
+        isSamplePlaying = true
         speechRecognizers.stopRecording()
         
-        // Success feedback
+        if let voiceIndex = voices.firstIndex(where: { $0.1 == voice }) {
+            selectedVoiceName = voices[voiceIndex].0
+        }
+        
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+            selectionAnimationActive = true
+        }
+        
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         
-        // Ensure microphone indicator is off
         withAnimation {
             isMicrophoneActive = false
         }
         
-        // Play confirmation
         resetAudioSession()
         ttsManager.speak("Voice selected. Let's proceed.", voice: voice) {
-            // Clean up before proceeding
             self.cleanupView()
-            
             print("Voice selection complete - navigating to next screen with voice: \(voice)")
-            
-            // Use main thread for UI navigation to prevent issues
             DispatchQueue.main.async {
                 self.onVoiceSelected(voice)
             }
         }
         
-        // Failsafe for navigation
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if self.hasSelectedVoice && self.isSamplePlaying {
                 print("Navigation failsafe triggered")
                 self.cleanupView()
-                
                 print("Voice selection complete (failsafe) - navigating to next screen with voice: \(voice)")
-                
-                // Use main thread for UI navigation
                 DispatchQueue.main.async {
                     self.onVoiceSelected(voice)
                 }
@@ -489,253 +410,737 @@ struct VoiceSelectionView: View {
     }
 }
 
-// MARK: - Simple Component Views
+// MARK: - Background from NameInputView
 
-/// Simple animated particle background
-struct SimpleParticleBackground: View {
-    
-    // Use fewer particles to avoid performance issues
-    let particleCount = 20
+struct NameInputBackground: View {
+    @Binding var backgroundGradientAngle: Double
+    @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     
     var body: some View {
-        ZStack {
-            // Creating individual particles
-            ForEach(0..<particleCount, id: \.self) { index in
-                SimpleParticle(index: index)
+        GeometryReader { geometry in
+            ZStack {
+                AngularGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 46/255, green: 49/255, blue: 146/255),
+                        Color(red: 27/255, green: 205/255, blue: 255/255),
+                        Color(red: 38/255, green: 120/255, blue: 190/255),
+                        Color(red: 46/255, green: 49/255, blue: 146/255)
+                    ]),
+                    center: .center,
+                    angle: .degrees(backgroundGradientAngle)
+                )
+                .ignoresSafeArea()
+                
+                Color.white.opacity(0.03)
+                    .ignoresSafeArea()
+                    .blendMode(.overlay)
+                
+                RadialGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0),
+                        Color.black.opacity(reduceTransparency ? 0.2 : 0.3)
+                    ]),
+                    center: .center,
+                    startRadius: geometry.size.width * 0.3,
+                    endRadius: geometry.size.width * 0.7
+                )
+                .ignoresSafeArea()
+                .blendMode(.multiply)
             }
         }
     }
 }
 
-/// Individual animated particle
-struct SimpleParticle: View {
+// MARK: - Enhanced Component Views
+
+struct EnhancedParticleBackground: View {
+    let isListening: Bool
+    let hasSelectedVoice: Bool
+    
+    let particleCount = 25
+    
+    var body: some View {
+        ZStack {
+            ForEach(0..<particleCount, id: \.self) { index in
+                EnhancedParticle(
+                    index: index,
+                    isListening: isListening,
+                    hasSelectedVoice: hasSelectedVoice
+                )
+            }
+        }
+    }
+}
+
+struct EnhancedParticle: View {
     let index: Int
+    let isListening: Bool
+    let hasSelectedVoice: Bool
     
     @State private var position = CGPoint.zero
     @State private var size: CGFloat = 0
     @State private var opacity: Double = 0
     @State private var isAnimating = false
+    @State private var speed: Double = 1.0
     
     var body: some View {
         Circle()
-            .fill(Color(red: 27/255, green: 255/255, blue: 255/255))
+            .fill(Color(red: 180/255, green: 220/255, blue: 255/255))
             .frame(width: size, height: size)
             .opacity(opacity)
             .blur(radius: size * 0.2)
             .position(position)
             .onAppear {
-                // Initialize with random properties
                 let screenWidth = UIScreen.main.bounds.width
                 let screenHeight = UIScreen.main.bounds.height
                 
-                // Set initial position
                 position = CGPoint(
                     x: CGFloat.random(in: 0...screenWidth),
                     y: CGFloat.random(in: 0...screenHeight)
                 )
                 
-                // Set size and opacity
                 size = CGFloat.random(in: 3...8)
                 opacity = Double.random(in: 0.1...0.4)
                 
-                // Start animation with delay based on index
                 DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) {
                     startAnimation()
+                }
+            }
+            .onChange(of: isListening) { newValue in
+                updateAnimationState()
+            }
+            .onChange(of: hasSelectedVoice) { newValue in
+                if newValue {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        speed = 1.5
+                        size = size * 1.3
+                        opacity = min(opacity * 1.5, 0.6)
+                    }
+                } else {
+                    updateAnimationState()
                 }
             }
     }
     
     private func startAnimation() {
         isAnimating = true
+        updateAnimationState()
+    }
+    
+    private func updateAnimationState() {
+        if hasSelectedVoice {
+            speed = 1.5
+        } else if isListening {
+            speed = 1.2
+        } else {
+            speed = 1.0
+        }
         
-        // Animate position, size and opacity with different durations
-        let duration = Double.random(in: 10...20)
+        let duration = Double.random(in: 10...20) / speed
         let screenWidth = UIScreen.main.bounds.width
         let screenHeight = UIScreen.main.bounds.height
         
         withAnimation(Animation.linear(duration: duration).repeatForever(autoreverses: false)) {
-            // Move to a new random position
             position = CGPoint(
                 x: CGFloat.random(in: 0...screenWidth),
                 y: CGFloat.random(in: 0...screenHeight)
             )
         }
         
-        // Pulse size and opacity
-        withAnimation(Animation.easeInOut(duration: Double.random(in: 2...4)).repeatForever(autoreverses: true)) {
-            size = CGFloat.random(in: 4...10)
-            opacity = Double.random(in: 0.2...0.5)
+        withAnimation(Animation.easeInOut(duration: Double.random(in: 2...4) / speed).repeatForever(autoreverses: true)) {
+            size = CGFloat.random(in: 4...10) * (hasSelectedVoice ? 1.3 : 1.0)
+            opacity = Double.random(in: 0.2...0.5) * (hasSelectedVoice ? 1.2 : isListening ? 1.1 : 1.0)
         }
     }
 }
 
-/// Simple grid of voice selection orbs
+struct EnhancedMicIndicator: View {
+    @State private var waveScale: CGFloat = 1.0
+    @State private var rotation: Double = 0
+    
+    var body: some View {
+        ZStack {
+            ForEach(0..<3) { i in
+                Circle()
+                    .stroke(Color(red: 180/255, green: 220/255, blue: 255/255).opacity(0.7 - Double(i) * 0.2), lineWidth: 2)
+                    .frame(width: 50 + CGFloat(i * 15), height: 50 + CGFloat(i * 15))
+                    .scaleEffect(waveScale)
+                    .opacity((2.0 - waveScale) * 0.5)
+            }
+            
+            Circle()
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 80/255, green: 120/255, blue: 200/255),
+                            Color(red: 40/255, green: 60/255, blue: 150/255)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 50, height: 50)
+                .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 2))
+                .overlay(
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.white)
+                        .rotationEffect(.degrees(rotation))
+                )
+                .shadow(color: Color(red: 180/255, green: 220/255, blue: 255/255).opacity(0.5), radius: 8)
+        }
+        .onAppear {
+            withAnimation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                waveScale = 1.3
+            }
+            withAnimation(Animation.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                rotation = 5
+            }
+        }
+    }
+}
+
+struct EnhancedSamplePlaybackView: View {
+    let voiceText: String
+    let voiceName: String
+    
+    @State private var displayedText: String = ""
+    @State private var isVisible = false
+    @State private var bubbleScale: CGFloat = 0.8
+    
+    var body: some View {
+        VStack {
+            Spacer()
+            
+            HStack(alignment: .top) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 80/255, green: 120/255, blue: 200/255),
+                                    Color(red: 40/255, green: 60/255, blue: 150/255)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 45, height: 45)
+                        .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
+                    
+                    Text(String(voiceName.prefix(1)))
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
+                .padding(.top, 6)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(voiceName)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(Color(red: 180/255, green: 220/255, blue: 255/255))
+                    
+                    Text(displayedText)
+                        .font(.system(size: 18, design: .rounded))
+                        .foregroundColor(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .animation(nil, value: displayedText)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(red: 40/255, green: 60/255, blue: 150/255).opacity(0.8))
+                        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                )
+                .padding(.leading, 4)
+                .padding(.trailing, 40)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 30)
+            .scaleEffect(bubbleScale)
+            .opacity(isVisible ? 1 : 0)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                isVisible = true
+                bubbleScale = 1.0
+            }
+            displayTextWithTypingAnimation()
+        }
+    }
+    
+    private func displayTextWithTypingAnimation() {
+        displayedText = ""
+        
+        for i in 0..<voiceText.count {
+            let index = voiceText.index(voiceText.startIndex, offsetBy: i)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.03) {
+                displayedText += String(voiceText[index])
+            }
+        }
+    }
+}
+
 struct SimpleVoiceGrid: View {
     let voices: [(String, String, String)]
     @Binding var selectedVoice: String?
     @Binding var activeVoice: String?
+    let hasSelectedFinal: Bool
     let onActivate: ((String, String, String)) -> Void
+    
+    @State private var selectionAnimationCounter = 0
+    @State private var orbsVisible = false
     
     var body: some View {
         ZStack {
-            // Background circle
-            Circle()
-                .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.3), lineWidth: 2)
-                .frame(width: 300, height: 300)
+            PulsatingRing()
             
-            // Voice orbs
             VStack(spacing: 60) {
                 HStack(spacing: 60) {
-                    SimpleVoiceOrb(
-                        name: voices[0].0,
+                    EnhancedVoiceOrb(
+                        voice: voices[0],
                         isSelected: selectedVoice == voices[0].1,
                         isActive: activeVoice == voices[0].1,
+                        animationDelay: 0.1,
+                        isVisible: orbsVisible,
+                        hasSelectedFinal: hasSelectedFinal,
+                        selectionAnimationCounter: selectionAnimationCounter,
                         onActivate: { onActivate(voices[0]) }
                     )
                     
-                    SimpleVoiceOrb(
-                        name: voices[1].0,
+                    EnhancedVoiceOrb(
+                        voice: voices[1],
                         isSelected: selectedVoice == voices[1].1,
                         isActive: activeVoice == voices[1].1,
+                        animationDelay: 0.2,
+                        isVisible: orbsVisible,
+                        hasSelectedFinal: hasSelectedFinal,
+                        selectionAnimationCounter: selectionAnimationCounter,
                         onActivate: { onActivate(voices[1]) }
                     )
                 }
                 
                 HStack(spacing: 60) {
-                    SimpleVoiceOrb(
-                        name: voices[2].0,
+                    EnhancedVoiceOrb(
+                        voice: voices[2],
                         isSelected: selectedVoice == voices[2].1,
                         isActive: activeVoice == voices[2].1,
+                        animationDelay: 0.3,
+                        isVisible: orbsVisible,
+                        hasSelectedFinal: hasSelectedFinal,
+                        selectionAnimationCounter: selectionAnimationCounter,
                         onActivate: { onActivate(voices[2]) }
                     )
                     
-                    SimpleVoiceOrb(
-                        name: voices[3].0,
+                    EnhancedVoiceOrb(
+                        voice: voices[3],
                         isSelected: selectedVoice == voices[3].1,
                         isActive: activeVoice == voices[3].1,
+                        animationDelay: 0.4,
+                        isVisible: orbsVisible,
+                        hasSelectedFinal: hasSelectedFinal,
+                        selectionAnimationCounter: selectionAnimationCounter,
                         onActivate: { onActivate(voices[3]) }
                     )
                 }
             }
         }
-        .drawingGroup() // Use Metal acceleration for the entire composition
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.easeOut(duration: 0.8)) {
+                    orbsVisible = true
+                }
+            }
+        }
+        .onChange(of: hasSelectedFinal) { newValue in
+            if newValue {
+                animateSelection()
+            }
+        }
+    }
+    
+    private func animateSelection() {
+        for i in 1...5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
+                self.selectionAnimationCounter += 1
+            }
+        }
     }
 }
 
-/// Individual voice selection orb
-struct SimpleVoiceOrb: View {
-    let name: String
+struct EnhancedVoiceOrb: View {
+    let voice: (String, String, String)
     let isSelected: Bool
     let isActive: Bool
+    let animationDelay: Double
+    let isVisible: Bool
+    let hasSelectedFinal: Bool
+    let selectionAnimationCounter: Int
     let onActivate: () -> Void
     
     @State private var isHovered = false
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var rotationDegrees: Double = 0
+    @State private var selectionCounter = 0
     
     var body: some View {
-        Button(action: onActivate) {
+        Button(action: {
+            if !hasSelectedFinal {
+                onActivate()
+            }
+        }) {
             ZStack {
-                // Glow effect
                 if isActive || isSelected || isHovered {
                     Circle()
                         .fill(
-                            Color(red: 27/255, green: 255/255, blue: 255/255)
-                                .opacity(isActive ? 0.4 : isSelected ? 0.3 : 0.2)
+                            RadialGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 180/255, green: 255/255, blue: 255/255)
+                                        .opacity(isActive ? 0.4 : isSelected ? 0.3 : 0.15),
+                                    Color.clear
+                                ]),
+                                center: .center,
+                                startRadius: 5,
+                                endRadius: 60
+                            )
                         )
-                        .frame(width: 100, height: 100)
-                        .blur(radius: 10)
+                        .frame(width: 120, height: 120)
+                        .scaleEffect(hasSelectedFinal ? pulseScale : 1.0)
                 }
                 
-                // Main circle
+                if isSelected {
+                    ZStack {
+                        ForEach(0..<2) { i in
+                            Circle()
+                                .trim(from: 0.4, to: 0.6)
+                                .stroke(Color.white.opacity(0.4), lineWidth: 1)
+                                .frame(width: 100, height: 100)
+                                .rotationEffect(Angle(degrees: rotationDegrees + Double(i) * 180))
+                        }
+                    }
+                    .onAppear {
+                        withAnimation(Animation.linear(duration: 10).repeatForever(autoreverses: false)) {
+                            rotationDegrees = 360
+                        }
+                    }
+                }
+                
                 Circle()
-                    .fill(Color(red: 46/255, green: 49/255, blue: 146/255))
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 65/255, green: 105/255, blue: 225/255).opacity(0.9),
+                                Color(red: 30/255, green: 50/255, blue: 120/255).opacity(0.8)
+                            ]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 80, height: 80)
                     .overlay(
                         Circle()
                             .stroke(
-                                Color(red: 27/255, green: 255/255, blue: 255/255),
-                                lineWidth: isActive ? 3 : isSelected ? 2 : 1.5
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.white.opacity(0.8),
+                                        Color.white.opacity(0.2)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: isActive ? 3 : isSelected ? 2 : 1
                             )
                     )
-                
-                // Name text
-                Text(name)
+                    .overlay(
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                            .blur(radius: 4)
+                            .frame(width: 40, height: 40)
+                            .offset(x: -15, y: -15)
+                    )
+                    
+                Text(voice.0)
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
                     .foregroundColor(.white)
+                    .shadow(color: Color(red: 180/255, green: 255/255, blue: 255/255).opacity(0.8), radius: 2, x: 0, y: 0)
             }
-            .scaleEffect(isActive ? 1.1 : isSelected ? 1.05 : isHovered ? 1.02 : 1.0)
+            .scaleEffect(calculateScale())
+            .rotation3DEffect(
+                isSelected && hasSelectedFinal ? .degrees(Double(selectionCounter) * 3) : .degrees(0),
+                axis: (x: 0, y: 1, z: 0)
+            )
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isActive)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .opacity(isVisible ? 1 : 0)
+            .blur(radius: hasSelectedFinal && !isSelected ? 1 : 0)
+            .animation(.easeInOut(duration: 0.6).delay(animationDelay), value: isVisible)
+            .onChange(of: selectionAnimationCounter) { newValue in
+                if hasSelectedFinal && isSelected {
+                    selectionCounter = newValue
+                    withAnimation(Animation.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                        pulseScale = 1.2
+                    }
+                }
+            }
         }
         .buttonStyle(PlainButtonStyle())
         .onHover { hovering in
             isHovered = hovering
         }
     }
+    
+    private func calculateScale() -> CGFloat {
+        if hasSelectedFinal {
+            return isSelected ? 1.15 : 0.8
+        } else {
+            return isActive ? 1.1 : isSelected ? 1.05 : isHovered ? 1.02 : 1.0
+        }
+    }
 }
 
-/// Simple microphone indicator
-struct SimpleMicIndicator: View {
-    @State private var isPulsing = false
+struct AnimatedTitleView: View {
+    let text: String
+    let isVisible: Bool
+    let isListeningStarted: Bool
+    
+    @State private var displayedText: String = ""
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var glowOpacity: Double = 0.0
+    @State private var isTypingComplete = false
     
     var body: some View {
-        ZStack {
-            // Background circle
-            Circle()
-                .fill(Color(red: 46/255, green: 49/255, blue: 146/255).opacity(0.7))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Circle()
-                        .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.8), lineWidth: 2)
-                        .scaleEffect(isPulsing ? 1.3 : 1.0)
-                        .opacity(isPulsing ? 0.5 : 1.0)
-                )
-            
-            // Microphone icon
-            Image(systemName: "mic.fill")
-                .font(.system(size: 20))
-                .foregroundColor(.white)
-        }
-        .onAppear {
-            withAnimation(Animation.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
-                isPulsing = true
+        Text(displayedText)
+            .font(.system(size: 36, weight: .bold, design: .rounded))
+            .foregroundColor(.white)
+            .shadow(color: .black.opacity(0.2), radius: 2)
+            .overlay(
+                Text(displayedText)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 120/255, green: 200/255, blue: 255/255))
+                    .opacity(glowOpacity)
+                    .blur(radius: 3)
+            )
+            .scaleEffect(isListeningStarted && isTypingComplete ? pulseScale : 1.0)
+            .opacity(isVisible ? 1.0 : 0.0)
+            .animation(.easeIn(duration: 0.8), value: isVisible)
+            .onChange(of: isVisible) { visible in
+                if visible {
+                    startTypingAnimation()
+                }
+            }
+            .onChange(of: isListeningStarted) { listening in
+                if listening && isTypingComplete {
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        pulseScale = 1.05
+                        glowOpacity = 0.7
+                    }
+                }
+            }
+    }
+    
+    private func startTypingAnimation() {
+        displayedText = ""
+        isTypingComplete = false
+        
+        for i in 0..<text.count {
+            let index = text.index(text.startIndex, offsetBy: i)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.07) {
+                displayedText += String(text[index])
+                if i == text.count - 1 {
+                    isTypingComplete = true
+                }
             }
         }
     }
 }
 
-/// Voice sample text overlay
-struct SamplePlaybackView: View {
-    let voiceText: String
-    
-    @State private var isVisible = false
+struct PulsatingRing: View {
+    @State private var scale: CGFloat = 1.0
+    @State private var opacity: Double = 0.8
     
     var body: some View {
-        VStack {
-            Spacer()
+        Circle()
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Color.white,
+                        Color(red: 180/255, green: 220/255, blue: 255/255)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 2
+            )
+            .frame(width: 300, height: 300)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(Animation.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
+                    scale = 1.05
+                    opacity = 0.6
+                }
+            }
+    }
+}
+
+struct ModernSelectionAnimation: View {
+    let voiceName: String
+    
+    @State private var outerRingScale: CGFloat = 0.0
+    @State private var outerRingOpacity: Double = 0.8
+    @State private var innerCircleScale: CGFloat = 0.2
+    @State private var checkmarkScale: CGFloat = 0.2
+    @State private var textOpacity: Double = 0.0
+    @State private var particlesActive: Bool = false
+    
+    var body: some View {
+        ZStack {
+            ForEach(0..<20) { i in
+                SelectionParticle(active: $particlesActive, index: i)
+            }
             
-            Text(voiceText)
-                .font(.system(size: 18, weight: .medium, design: .rounded))
-                .multilineTextAlignment(.center)
-                .foregroundColor(.white)
-                .padding(20)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color(red: 46/255, green: 49/255, blue: 146/255).opacity(0.8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color(red: 27/255, green: 255/255, blue: 255/255).opacity(0.5), lineWidth: 1.5)
-                        )
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 120/255, green: 200/255, blue: 255/255),
+                            Color(red: 160/255, green: 220/255, blue: 255/255)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 3
                 )
-                .padding(.horizontal, 30)
-                .padding(.bottom, 40)
-                .opacity(isVisible ? 1 : 0)
-                .offset(y: isVisible ? 0 : 20)
+                .frame(width: 200, height: 200)
+                .scaleEffect(outerRingScale)
+                .opacity(outerRingOpacity)
+            
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 70/255, green: 150/255, blue: 230/255),
+                            Color(red: 30/255, green: 80/255, blue: 180/255)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 120, height: 120)
+                .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                .scaleEffect(innerCircleScale)
+                .shadow(color: Color(red: 100/255, green: 180/255, blue: 255/255).opacity(0.6), radius: 10)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 60, weight: .bold))
+                        .foregroundColor(.white)
+                        .scaleEffect(checkmarkScale)
+                )
+            
+            VStack(spacing: 10) {
+                Spacer()
+                    .frame(height: 160)
+                
+                Text("Voice Selected")
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                
+                Text(voiceName)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 180/255, green: 240/255, blue: 255/255))
+                    .shadow(color: Color(red: 100/255, green: 180/255, blue: 255/255), radius: 5)
+            }
+            .opacity(textOpacity)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.4)) {
-                isVisible = true
+            startAnimations()
+        }
+    }
+    
+    private func startAnimations() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        
+        withAnimation(Animation.easeOut(duration: 0.8)) {
+            outerRingScale = 1.0
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(Animation.spring(response: 0.6, dampingFraction: 0.7)) {
+                innerCircleScale = 1.0
+            }
+            self.particlesActive = true
+            withAnimation(Animation.easeInOut(duration: 1.2)) {
+                outerRingOpacity = 0.0
             }
         }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(Animation.spring(response: 0.4, dampingFraction: 0.6)) {
+                checkmarkScale = 1.0
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(Animation.easeIn(duration: 0.5)) {
+                textOpacity = 1.0
+            }
+        }
+    }
+}
+
+struct SelectionParticle: View {
+    @Binding var active: Bool
+    let index: Int
+    
+    @State private var position = CGPoint.zero
+    @State private var scale: CGFloat = 0.1
+    @State private var opacity: Double = 0.0
+    
+    var body: some View {
+        let size = CGFloat.random(in: 3...10)
+        let angle = Double.random(in: 0..<2 * .pi)
+        let distance = CGFloat.random(in: 50...180)
+        
+        Circle()
+            .fill(
+                Color(
+                    red: Double.random(in: 120...200)/255,
+                    green: Double.random(in: 180...250)/255,
+                    blue: 1.0
+                )
+            )
+            .frame(width: size, height: size)
+            .position(position)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onChange(of: active) { isActive in
+                if isActive {
+                    let delay = Double(index) * 0.05
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        let x = sin(angle) * distance
+                        let y = cos(angle) * distance
+                        withAnimation(Animation.spring(response: 0.6, dampingFraction: 0.7).delay(delay)) {
+                            position = CGPoint(x: UIScreen.main.bounds.width/2 + x, y: UIScreen.main.bounds.height/2 - 40 + y)
+                            scale = CGFloat.random(in: 0.5...1.0)
+                            opacity = Double.random(in: 0.3...0.8)
+                        }
+                        withAnimation(Animation.easeOut(duration: 1.0).delay(delay + 0.5)) {
+                            opacity = 0
+                            scale = scale * 1.5
+                        }
+                    }
+                } else {
+                    position = CGPoint(x: UIScreen.main.bounds.width/2, y: UIScreen.main.bounds.height/2 - 40)
+                    scale = 0.1
+                    opacity = 0.0
+                }
+            }
+            .onAppear {
+                position = CGPoint(x: UIScreen.main.bounds.width/2, y: UIScreen.main.bounds.height/2 - 40)
+            }
     }
 }
