@@ -3,19 +3,15 @@ import AVFoundation
 import Speech
 
 // MARK: - Main Voice Selection View
-
 struct VoiceSelectionView: View {
     // MARK: - Properties
-    
     let onVoiceSelected: (String) -> Void
     
     // MARK: - State Objects
-    
     @StateObject private var speechRecognizers = SpeechRecognizers()
     @StateObject private var ttsManager = AzureTTSManager.shared
     
     // MARK: - State Variables
-    
     @State private var voices = [
         ("Amy", "en-US-AriaNeural", "Hi, I'm Amy—clear and friendly. Say 'Select' to choose me."),
         ("Ben", "en-US-GuyNeural", "I'm Ben—calm and steady. Say 'Select' to pick me."),
@@ -38,14 +34,16 @@ struct VoiceSelectionView: View {
     @State private var selectionAnimationActive = false
     @State private var selectedVoiceName: String? = nil
     @State private var listeningStarted = false
-    @State private var backgroundGradientAngle: Double = 0 // Added for background animation
+    @State private var backgroundGradientAngle: Double = 0
+    @State private var audioSessionPreActivated = false
+    @State private var introductionSpeechActive = false // Track if introduction is playing
+    @State private var introductionCompleted = false // Track if introduction completed
+    @State private var speechCancellationBlocked = false // New flag to prevent introduction speech cancellation
     
     // MARK: - Body
-    
     var body: some View {
         ZStack {
             // MARK: - Background Elements
-            
             NameInputBackground(backgroundGradientAngle: $backgroundGradientAngle)
                 .ignoresSafeArea()
             
@@ -53,7 +51,6 @@ struct VoiceSelectionView: View {
                 .ignoresSafeArea()
             
             // MARK: - Content Layer
-            
             VStack(spacing: 40) {
                 AnimatedTitleView(
                     text: "Choose Your Voice",
@@ -78,7 +75,6 @@ struct VoiceSelectionView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // MARK: - Overlay Elements
-            
             if isMicrophoneActive {
                 VStack {
                     Spacer()
@@ -106,16 +102,14 @@ struct VoiceSelectionView: View {
         .onAppear {
             print("VoiceSelectionView appeared")
             resetViewState()
+            prepareAudioSession()
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation {
                 isTextVisible = true
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                initializeView()
-            }
+            initializeView()
             
-            // Start background gradient animation
             withAnimation(Animation.linear(duration: 30).repeatForever(autoreverses: false)) {
                 backgroundGradientAngle = 360
             }
@@ -127,7 +121,6 @@ struct VoiceSelectionView: View {
     }
     
     // MARK: - Helper Methods
-    
     private func resetViewState() {
         isMicrophoneActive = false
         hasSelectedVoice = false
@@ -136,7 +129,19 @@ struct VoiceSelectionView: View {
         selectionAnimationActive = false
         titleAnimationPhase = 0.0
         listeningStarted = false
-        backgroundGradientAngle = 0 // Reset background angle
+        backgroundGradientAngle = 0
+        audioSessionPreActivated = false
+        introductionSpeechActive = false
+        introductionCompleted = false
+        speechCancellationBlocked = false // Reset the protection flag
+    }
+    
+    private func prepareAudioSession() {
+        print("Pre-activating audio session")
+        if !audioSessionPreActivated {
+            AudioSessionManager.shared.activate()
+            audioSessionPreActivated = true
+        }
     }
     
     private func initializeView() {
@@ -144,24 +149,38 @@ struct VoiceSelectionView: View {
         
         print("Initializing voice selection view")
         viewInitialized = true
+        introductionSpeechActive = true
+        speechCancellationBlocked = true // Block cancellation during introduction
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            self.resetAudioSession()
+        // Cancel any existing speech first to avoid conflicts
+        ttsManager.cancelAllSpeech()
+        
+        // Use speakWithPriority instead of regular speak
+        ttsManager.speakWithPriority(
+            "Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.",
+            voice: self.voices[0].1
+        ) {
+            print("Introduction speech completed successfully via priority speech")
+            self.introductionSpeechActive = false
+            self.introductionCompleted = true
+            self.speechCancellationBlocked = false // Unblock speech cancellation
+            self.animateTitle()
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.ttsManager.speak("Say Amy, Ben, Clara, or Dan to hear me, then 'Select' to choose.", voice: self.voices[0].1) {
-                    print("Introduction complete, starting listening")
-                    self.animateTitle()
-                    self.startListening()
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
-                    if !self.isListening && !self.isSamplePlaying {
-                        print("Failsafe: Starting listening after introduction")
-                        self.animateTitle()
-                        self.startListening()
-                    }
-                }
+            // Add a small buffer to ensure audio playback is fully finished
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.startListening()
+            }
+        }
+        
+        // Longer failsafe with a timeout to avoid interrupting priority speech
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+            if !self.isListening && !self.isSamplePlaying && !self.introductionCompleted {
+                print("Failsafe: Starting listening after extended introduction timeout")
+                self.introductionSpeechActive = false
+                self.introductionCompleted = true
+                self.speechCancellationBlocked = false // Unblock speech cancellation
+                self.animateTitle()
+                self.startListening()
             }
         }
     }
@@ -175,18 +194,28 @@ struct VoiceSelectionView: View {
     private func cleanupView() {
         print("Cleaning up view resources")
         speechRecognizers.stopRecording()
-        ttsManager.cancelAllSpeech()
+        
+        // Only cancel speech if we're not in the protected introduction phase
+        if !speechCancellationBlocked {
+            ttsManager.cancelAllSpeech()
+        }
+        
         deactivateAudioSession()
         isListening = false
         isSamplePlaying = false
         isMicrophoneActive = false
+        introductionSpeechActive = false
     }
     
     private func resetAudioSession() {
-        deactivateAudioSession()
-        Thread.sleep(forTimeInterval: 0.1)
-        AudioSessionManager.shared.activate()
-        print("Audio session reset and activated")
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            try AVAudioSession.sharedInstance().setActive(true)
+            print("Audio session reset efficiently")
+        } catch {
+            print("Error resetting audio session: \(error)")
+            AudioSessionManager.shared.activate()
+        }
     }
     
     private func deactivateAudioSession() {
@@ -201,13 +230,26 @@ struct VoiceSelectionView: View {
     private func startListening() {
         print("Starting voice command listening")
         
+        // Don't start listening if introduction is still playing or protected
+        if introductionSpeechActive || speechCancellationBlocked {
+            print("Introduction speech still active or protected, deferring listening")
+            return
+        }
+        
         if isSamplePlaying || hasSelectedVoice {
             print("Sample playing or voice already selected, deferring listening")
             return
         }
         
         speechRecognizers.stopRecording()
-        resetAudioSession()
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Error activating audio session: \(error)")
+            resetAudioSession()
+        }
+        
         isListening = true
         micRestartAttempts = 0
         listeningStarted = true
@@ -250,7 +292,7 @@ struct VoiceSelectionView: View {
             }
         )
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 print("Checking if microphone needs restarting")
                 self.micRestartAttempts += 1
@@ -267,21 +309,29 @@ struct VoiceSelectionView: View {
     private func resetAndRestartAudio() {
         print("Full audio system reset")
         speechRecognizers.stopRecording()
-        ttsManager.cancelAllSpeech()
+        
+        // Only cancel speech if we're not in the protected introduction phase
+        if !speechCancellationBlocked {
+            ttsManager.cancelAllSpeech()
+        }
+        
         deactivateAudioSession()
         
         withAnimation {
             isMicrophoneActive = false
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.resetAudioSession()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            AudioSessionManager.shared.activate()
             self.micRestartAttempts = 0
             self.isListening = false
             self.isSamplePlaying = false
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.startListening()
+            // Don't restart listening if speech is protected
+            if !self.speechCancellationBlocked {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.startListening()
+                }
             }
         }
     }
@@ -303,14 +353,35 @@ struct VoiceSelectionView: View {
             isMicrophoneActive = false
         }
         
-        resetAudioSession()
+        // Only cancel speech if we're not in the protected introduction phase
+        if !speechCancellationBlocked {
+            ttsManager.cancelAllSpeech()
+        }
         
-        ttsManager.speak(voice.2, voice: voice.1) {
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Error activating audio session for sample: \(error)")
+            resetAudioSession()
+        }
+        
+        // Set up callback before starting speech to prevent race condition
+        let completionHandler = {
             print("Sample finished for \(voice.0), resuming listening")
             self.samplePlaybackFinished()
         }
         
-        let estimatedDuration = voice.0 == "Dan" ? TimeInterval(7.0) : TimeInterval(6.0)
+        // Use speakWithPriority instead of regular speak to prevent cancellation
+        ttsManager.speakWithPriority(
+            voice.2,
+            voice: voice.1,
+            completion: completionHandler
+        )
+        
+        // More accurate voice-specific timeouts with longer durations for priority speech
+        let estimatedDuration = voice.0 == "Dan" ? TimeInterval(6.5) : TimeInterval(6.0)
+        
+        // First failsafe
         DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 1: Sample may have completed without callback")
@@ -318,7 +389,8 @@ struct VoiceSelectionView: View {
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration + 2.0) {
+        // Second failsafe with increased timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedDuration + 1.5) {
             if self.isSamplePlaying && self.currentSample == voice.0 {
                 print("Failsafe 2: Forcing sample completion")
                 self.samplePlaybackFinished()
@@ -333,7 +405,8 @@ struct VoiceSelectionView: View {
         isSamplePlaying = false
         currentSample = nil
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // Start listening with a short delay to ensure complete playback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.startListening()
         }
     }
@@ -349,11 +422,26 @@ struct VoiceSelectionView: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
         
-        resetAudioSession()
-        ttsManager.speak("Please say a name first to preview a voice.", voice: voices[0].1) {
+        // Only cancel speech if we're not in the protected introduction phase
+        if !speechCancellationBlocked {
+            ttsManager.cancelAllSpeech()
+        }
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            resetAudioSession()
+        }
+        
+        // Use speakWithPriority instead of regular speak
+        ttsManager.speakWithPriority(
+            "Please say a name first to preview a voice.",
+            voice: voices[0].1
+        ) {
             self.startListening()
         }
         
+        // Longer failsafe for priority speech
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if !self.isListening && !self.isSamplePlaying && !self.hasSelectedVoice {
                 self.startListening()
@@ -388,8 +476,22 @@ struct VoiceSelectionView: View {
             isMicrophoneActive = false
         }
         
-        resetAudioSession()
-        ttsManager.speak("Voice selected. Let's proceed.", voice: voice) {
+        // Only cancel speech if we're not in the protected introduction phase
+        if !speechCancellationBlocked {
+            ttsManager.cancelAllSpeech()
+        }
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            resetAudioSession()
+        }
+        
+        // Use speakWithPriority for the selection confirmation
+        ttsManager.speakWithPriority(
+            "Voice selected. Let's proceed.",
+            voice: voice
+        ) {
             self.cleanupView()
             print("Voice selection complete - navigating to next screen with voice: \(voice)")
             DispatchQueue.main.async {
@@ -397,6 +499,7 @@ struct VoiceSelectionView: View {
             }
         }
         
+        // Longer failsafe for priority speech
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if self.hasSelectedVoice && self.isSamplePlaying {
                 print("Navigation failsafe triggered")
@@ -411,7 +514,6 @@ struct VoiceSelectionView: View {
 }
 
 // MARK: - Background from NameInputView
-
 struct NameInputBackground: View {
     @Binding var backgroundGradientAngle: Double
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
@@ -452,7 +554,6 @@ struct NameInputBackground: View {
 }
 
 // MARK: - Enhanced Component Views
-
 struct EnhancedParticleBackground: View {
     let isListening: Bool
     let hasSelectedVoice: Bool
@@ -502,9 +603,7 @@ struct EnhancedParticle: View {
                 size = CGFloat.random(in: 3...8)
                 opacity = Double.random(in: 0.1...0.4)
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) {
-                    startAnimation()
-                }
+                startAnimation()
             }
             .onChange(of: isListening) { newValue in
                 updateAnimationState()
@@ -674,9 +773,10 @@ struct EnhancedSamplePlaybackView: View {
     private func displayTextWithTypingAnimation() {
         displayedText = ""
         
+        let typingSpeed = 0.02
         for i in 0..<voiceText.count {
             let index = voiceText.index(voiceText.startIndex, offsetBy: i)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.03) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * typingSpeed) {
                 displayedText += String(voiceText[index])
             }
         }
@@ -748,8 +848,8 @@ struct SimpleVoiceGrid: View {
             }
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                withAnimation(.easeOut(duration: 0.8)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeOut(duration: 0.6)) {
                     orbsVisible = true
                 }
             }
@@ -876,7 +976,7 @@ struct EnhancedVoiceOrb: View {
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             .opacity(isVisible ? 1 : 0)
             .blur(radius: hasSelectedFinal && !isSelected ? 1 : 0)
-            .animation(.easeInOut(duration: 0.6).delay(animationDelay), value: isVisible)
+            .animation(.easeInOut(duration: 0.5).delay(animationDelay * 0.7), value: isVisible)
             .onChange(of: selectionAnimationCounter) { newValue in
                 if hasSelectedFinal && isSelected {
                     selectionCounter = newValue
@@ -925,7 +1025,7 @@ struct AnimatedTitleView: View {
             )
             .scaleEffect(isListeningStarted && isTypingComplete ? pulseScale : 1.0)
             .opacity(isVisible ? 1.0 : 0.0)
-            .animation(.easeIn(duration: 0.8), value: isVisible)
+            .animation(.easeIn(duration: 0.6), value: isVisible)
             .onChange(of: isVisible) { visible in
                 if visible {
                     startTypingAnimation()
@@ -945,9 +1045,10 @@ struct AnimatedTitleView: View {
         displayedText = ""
         isTypingComplete = false
         
+        let typingSpeed = 0.05
         for i in 0..<text.count {
             let index = text.index(text.startIndex, offsetBy: i)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.07) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * typingSpeed) {
                 displayedText += String(text[index])
                 if i == text.count - 1 {
                     isTypingComplete = true
@@ -1064,28 +1165,28 @@ struct ModernSelectionAnimation: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         
-        withAnimation(Animation.easeOut(duration: 0.8)) {
+        withAnimation(Animation.easeOut(duration: 0.6)) {
             outerRingScale = 1.0
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            withAnimation(Animation.spring(response: 0.6, dampingFraction: 0.7)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(Animation.spring(response: 0.5, dampingFraction: 0.7)) {
                 innerCircleScale = 1.0
             }
             self.particlesActive = true
-            withAnimation(Animation.easeInOut(duration: 1.2)) {
+            withAnimation(Animation.easeInOut(duration: 1.0)) {
                 outerRingOpacity = 0.0
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            withAnimation(Animation.spring(response: 0.4, dampingFraction: 0.6)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(Animation.spring(response: 0.3, dampingFraction: 0.6)) {
                 checkmarkScale = 1.0
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            withAnimation(Animation.easeIn(duration: 0.5)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(Animation.easeIn(duration: 0.4)) {
                 textOpacity = 1.0
             }
         }
@@ -1119,16 +1220,16 @@ struct SelectionParticle: View {
             .opacity(opacity)
             .onChange(of: active) { isActive in
                 if isActive {
-                    let delay = Double(index) * 0.05
+                    let delay = Double(index) * 0.04
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                         let x = sin(angle) * distance
                         let y = cos(angle) * distance
-                        withAnimation(Animation.spring(response: 0.6, dampingFraction: 0.7).delay(delay)) {
+                        withAnimation(Animation.spring(response: 0.5, dampingFraction: 0.7).delay(delay)) {
                             position = CGPoint(x: UIScreen.main.bounds.width/2 + x, y: UIScreen.main.bounds.height/2 - 40 + y)
                             scale = CGFloat.random(in: 0.5...1.0)
                             opacity = Double.random(in: 0.3...0.8)
                         }
-                        withAnimation(Animation.easeOut(duration: 1.0).delay(delay + 0.5)) {
+                        withAnimation(Animation.easeOut(duration: 0.8).delay(delay + 0.4)) {
                             opacity = 0
                             scale = scale * 1.5
                         }
