@@ -1,10 +1,17 @@
+// [[[cog
+// import cog
+// cog.outl(f'// -*- coding: utf-8 -*-')
+// ]]]
+// -*- coding: utf-8 -*-
+// [[[end]]]
 import SwiftUI
 
 struct ContentView: View {
     @State private var flowState: FlowState = .loading
-    @State private var selectedVoice: String = "en-US-AriaNeural"
-    @State private var userName: String = "User" // To store the name for HomeView
-    
+    // Store selected voice and user name here
+    @State private var selectedVoice: String = "en-US-AriaNeural" // Default voice
+    @State private var userName: String = "User"
+
     enum FlowState {
         case loading
         case welcome
@@ -14,88 +21,90 @@ struct ContentView: View {
         case home
         case permissionDenied
     }
-    
+
     var body: some View {
         ZStack {
-            switch flowState {
-            case .loading:
-                LoadingView(
-                    onComplete: {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation {
-                                flowState = .welcome
-                            }
-                        }
+            // Use AnyView to handle transitions between potentially different view types smoothly
+            AnyView(currentView)
+                 .transition(.opacity.animation(.easeInOut(duration: 0.4))) // Apply transition to AnyView
+        }
+        // Use task for async operations tied to view lifecycle if needed
+         .task {
+              // Example: Preload resources if necessary based on state
+         }
+    }
+
+    // Computed property to determine the current view based on flowState
+    @ViewBuilder
+    private var currentView: some View {
+        switch flowState {
+        case .loading:
+            LoadingView(
+                onComplete: {
+                    // Delay slightly before moving to welcome
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { // Adjusted delay
+                        flowState = .welcome
                     }
-                )
-                .transition(.opacity)
-            case .welcome:
-                WelcomeView(
-                    onAppearAction: {
-                        print("WelcomeView appeared")
-                    },
-                    onNext: {
-                        withAnimation {
-                            flowState = .onboarding
-                        }
-                    },
-                    onDirectHome: {
-                        withAnimation {
-                            flowState = .home
-                        }
-                    },
-                    onPermissionDenied: {
-                        withAnimation {
-                            flowState = .permissionDenied
-                        }
+                }
+            )
+        case .welcome:
+            WelcomeView(
+                onAppearAction: {
+                    print("WelcomeView appeared")
+                },
+                onNext: {
+                    flowState = .onboarding
+                },
+                onDirectHome: {
+                    // If skipping, go directly home (using default voice/name)
+                    flowState = .home
+                },
+                onPermissionDenied: {
+                    flowState = .permissionDenied
+                }
+            )
+        case .onboarding:
+            OnBoardingView(
+                onComplete: {
+                    flowState = .voiceSelection
+                }
+            )
+        case .voiceSelection:
+            VoiceSelectionView(
+                onVoiceSelected: { voice in
+                    print("Voice Selected in ContentView: \(voice)")
+                    selectedVoice = voice // <-- STORE THE SELECTED VOICE
+                    // Add a small delay for visual feedback before transitioning
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                         flowState = .nameInput
                     }
-                )
-                .transition(.opacity)
-            case .onboarding:
-                OnBoardingView(
-                    onComplete: { // Changed from onSuccess to match your file
-                        withAnimation {
-                            flowState = .voiceSelection
-                        }
-                    }
-                )
-                .transition(.opacity)
-            case .voiceSelection:
-                VoiceSelectionView(
-                    onVoiceSelected: { voice in
-                        selectedVoice = voice
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            withAnimation {
-                                flowState = .nameInput
-                            }
-                        }
-                    }
-                )
-                .transition(.opacity)
-            case .nameInput:
-                NameInputView(
-                    selectedVoice: selectedVoice,
-                    onComplete: { name in
-                        userName = name // Store the name
-                        withAnimation {
-                            flowState = .home
-                        }
-                    }
-                )
-                .transition(.opacity)
-            case .home:
-                HomeView() // Updated to not require userName since your HomeView doesn’t use it
-                    .transition(.opacity)
-            case .permissionDenied:
-                PermissionDeniedView(
-                    onRetry: {
-                        withAnimation {
-                            flowState = .loading // Retry goes back to start
-                        }
-                    }
-                )
-                .transition(.opacity)
-            }
+                }
+            )
+        case .nameInput:
+            NameInputView(
+                selectedVoice: selectedVoice, // Pass selected voice TO NameInputView
+                onComplete: { name in
+                    print("Name Entered in ContentView: \(name)")
+                    userName = name // <-- STORE THE USER NAME
+                     // Add a small delay for visual feedback
+                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                          flowState = .home
+                     }
+                }
+            )
+        case .home:
+            // Pass the selected voice and user name TO HomeView
+            HomeView(selectedVoice: selectedVoice, userName: userName)
+
+        case .permissionDenied:
+            PermissionDeniedView(
+                onRetry: {
+                     // Reset to welcome might be better than loading if permissions were the only issue
+                     flowState = .welcome
+                    // Or go back to loading if a full reset is needed:
+                    // flowState = .loading
+                }
+            )
         }
     }
 }

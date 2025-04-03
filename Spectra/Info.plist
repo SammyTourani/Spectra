@@ -2,11 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>We need speech recognition for voice commands.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>We need microphone access for voice commands.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>We need camera access to assist you.</string>
-</dict>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>We need speech recognition for voice commands.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>We need microphone access for voice commands.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>We need camera access to assist you.</string>
+    
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/> <key>NSExceptionDomains</key>
+        <dict>
+            <key>172.17.96.86</key> <dict>
+                <key>NSIncludesSubdomains</key>
+                <false/>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/> </dict>
+        </dict>
+    </dict>
+    </dict>
 </plist>
